@@ -3,7 +3,7 @@ const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const AccessPin = require('../models/AccessPin');
 const emailService = require('../utils/emailService');
-const { uploadToCloudinary } = require('../middleware/upload'); // Updated import
+const { uploadToCloudinary } = require('../middleware/upload');
 
 const userController = {
   // Get user notifications - FIXED VERSION
@@ -11,30 +11,25 @@ const userController = {
     try {
       const { userId } = req.params;
       
-      // Verify user has permission to view these notifications
       if (req.user._id.toString() !== userId && req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Access denied' });
       }
 
-      // Fetch notifications for this user, sorted by most recent
       const notifications = await Notification.find({ user: userId })
         .sort({ createdAt: -1 })
-        .limit(50); // Increased limit to ensure all notifications show
+        .limit(50);
 
-      // Mark notifications as read if needed
       await Notification.updateMany(
         { user: userId, read: false },
         { read: true }
       );
-
-      console.log(`Fetched ${notifications.length} notifications for user ${userId}`);
 
       res.json(notifications);
     } catch (error) {
       console.error('Get notifications error:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error fetching notifications: ' + error.message 
+        message: 'Error fetching notifications' 
       });
     }
   },
@@ -58,34 +53,19 @@ const userController = {
     }
   },
 
-  // Upload proof of payment - UPDATED FOR DIRECT CLOUDINARY UPLOAD
+  // Upload proof of payment
   uploadProof: async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: 'No file provided' });
       }
 
-      console.log('File received in memory:', {
-        originalname: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        buffer: req.file.buffer ? 'Exists' : 'Missing'
-      });
-
-      // Upload the buffer from memory directly to Cloudinary
       const uploadResult = await uploadToCloudinary(
         req.file.buffer, 
         req.user._id, 
         req.file.mimetype
       );
 
-      console.log('Cloudinary upload result:', {
-        url: uploadResult.secure_url,
-        public_id: uploadResult.public_id,
-        format: uploadResult.format
-      });
-
-      // Update user with Cloudinary URL and public_id
       const user = await User.findByIdAndUpdate(
         req.user._id,
         { 
@@ -96,158 +76,145 @@ const userController = {
         { new: true }
       ).select('-password');
 
-      // Send email notification to admin
       try {
         await emailService.sendProofOfPaymentNotification(user.toObject(), uploadResult.secure_url);
-        console.log('Proof of payment email sent to admin for user:', user.email);
       } catch (emailError) {
         console.error('Failed to send email:', emailError);
-        // Continue even if email fails
       }
 
       res.json({ 
-        message: 'Proof of payment uploaded successfully to Cloudinary.',
+        message: 'Proof of payment uploaded successfully.',
         user,
         cloudinaryUrl: uploadResult.secure_url
       });
     } catch (error) {
       console.error('Upload proof error:', error);
       res.status(500).json({ 
-        message: 'Error uploading proof of payment',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: 'Error uploading proof of payment'
       });
     }
   },
 
-  // Verify PIN - UPDATED WITH EMAIL NOTIFICATION
+  // Verify PIN - FIXED VERSION
   verifyPin: async (req, res) => {
     try {
       const { pin } = req.body;
 
-      console.log('PIN verification attempt:', { userId: req.user._id, pin });
+      console.log('PIN verification attempt:', { 
+        userId: req.user._id, 
+        pin,
+        timestamp: new Date().toISOString() 
+      });
 
       // Validate PIN format
       if (!pin || pin.length !== 5 || !/^\d+$/.test(pin)) {
-        // Send email notification for invalid PIN attempt
-        try {
-          const user = await User.findById(req.user._id);
-          if (user) {
-            await emailService.sendPinSubmissionNotification(user.toObject(), 'Invalid PIN Format', pin);
-          }
-        } catch (emailError) {
-          console.error('Failed to send invalid PIN email:', emailError);
-        }
-        
         return res.status(400).json({ 
           message: 'Invalid PIN format. PIN must be exactly 5 digits.',
           verified: false 
         });
       }
 
-      // Get current access PIN from database
-      let accessPin = await AccessPin.findOne();
-      
-      // If no PIN exists in database, create default
-      if (!accessPin) {
-        console.log('No access PIN found, creating default');
-        accessPin = await AccessPin.create({ pin: '68120' });
+      // FIRST: Check user's personal PIN (set by admin)
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          message: 'User not found',
+          verified: false 
+        });
       }
 
-      console.log('Current PIN in DB:', accessPin.pin);
-      console.log('Entered PIN:', pin);
+      console.log('User personal PIN:', user.personalPin);
+      console.log('User verification status:', user.isVerified);
 
-      // Check if PIN matches
-      if (pin === accessPin.pin) {
-        console.log('PIN matches, updating user verification');
+      // Check if user has a personal PIN set by admin
+      if (user.personalPin && user.personalPin.trim() === pin.trim()) {
+        console.log('Personal PIN matched for user:', user._id);
         
         // Update user verification status
-        const user = await User.findByIdAndUpdate(
-          req.user._id, 
-          { 
-            isVerified: true,
-            verifiedAt: new Date()
-          },
-          { new: true }
-        ).select('-password');
-        
-        console.log('User updated:', user._id);
-        
-        // Send email notification to admin for successful PIN verification
+        user.isVerified = true;
+        user.verifiedAt = new Date();
+        await user.save();
+
+        // Send notification
         try {
-          await emailService.sendPinSubmissionNotification(user.toObject(), 'Valid PIN - User Verified', pin);
-          console.log('PIN verification email sent to admin for user:', user.email);
+          await emailService.sendPinSubmissionNotification(
+            user.toObject(), 
+            'Personal PIN Verification Successful', 
+            pin
+          );
         } catch (emailError) {
-          console.error('Failed to send PIN verification email:', emailError);
+          console.error('Failed to send email:', emailError);
         }
-        
+
         return res.json({ 
           message: 'PIN verified successfully. You now have VIP access.',
           verified: true,
-          user
+          pinType: 'personal'
         });
       }
 
-      // Check if user has personal PIN
-      const user = await User.findById(req.user._id);
-      if (user.personalPin && pin === user.personalPin) {
-        console.log('Personal PIN matches');
-        await User.findByIdAndUpdate(req.user._id, { 
-          isVerified: true,
-          verifiedAt: new Date()
-        });
+      // SECOND: Check global access PIN
+      let accessPin = await AccessPin.findOne();
+      
+      if (!accessPin) {
+        accessPin = await AccessPin.create({ pin: '68120' });
+      }
+
+      console.log('Global PIN from DB:', accessPin.pin);
+
+      if (pin.trim() === accessPin.pin.trim()) {
+        console.log('Global PIN matched for user:', user._id);
         
-        // Send email notification to admin
+        user.isVerified = true;
+        user.verifiedAt = new Date();
+        await user.save();
+
         try {
-          await emailService.sendPinSubmissionNotification(user.toObject(), 'Valid Personal PIN - User Verified', pin);
+          await emailService.sendPinSubmissionNotification(
+            user.toObject(), 
+            'Global PIN Verification Successful', 
+            pin
+          );
         } catch (emailError) {
-          console.error('Failed to send personal PIN email:', emailError);
+          console.error('Failed to send email:', emailError);
         }
-        
+
         return res.json({ 
           message: 'PIN verified successfully. You now have VIP access.',
-          verified: true 
+          verified: true,
+          pinType: 'global'
         });
       }
 
-      console.log('PIN does not match');
+      // THIRD: If no match, return error
+      console.log('No PIN match for user:', user._id);
       
-      // Send email notification for invalid PIN attempt
       try {
-        const user = await User.findById(req.user._id);
-        if (user) {
-          await emailService.sendPinSubmissionNotification(user.toObject(), 'Invalid PIN Attempt', pin);
-        }
+        await emailService.sendPinSubmissionNotification(
+          user.toObject(), 
+          'Failed PIN Attempt', 
+          pin
+        );
       } catch (emailError) {
-        console.error('Failed to send invalid PIN email:', emailError);
+        console.error('Failed to send email:', emailError);
       }
-      
-      // If PIN doesn't match any valid PIN
+
       return res.status(400).json({ 
-        message: 'Invalid PIN. Please message the admin for the correct PIN to access the winning numbers.',
+        message: 'Invalid PIN. Please contact the admin for the correct PIN.',
         verified: false 
       });
+
     } catch (error) {
       console.error('Verify PIN error details:', error);
       
-      // Send email notification for PIN verification error
-      try {
-        const user = await User.findById(req.user._id);
-        if (user) {
-          await emailService.sendPinSubmissionNotification(user.toObject(), 'PIN Verification Error', 'N/A');
-        }
-      } catch (emailError) {
-        console.error('Failed to send PIN error email:', emailError);
-      }
-      
       res.status(500).json({ 
-        message: 'Error verifying PIN. Please try again or contact admin.',
-        verified: false,
-        error: error.message 
+        message: 'Error verifying PIN. Please try again.',
+        verified: false
       });
     }
   },
 
-  // Simple verification endpoint (alternative)
+  // Simple verification endpoint
   verifyUser: async (req, res) => {
     try {
       const { verified } = req.body;
@@ -271,10 +238,9 @@ const userController = {
     }
   },
 
-  // Get dashboard data - UPDATED VERSION
+  // Get dashboard data
   getDashboard: async (req, res) => {
     try {
-      // Get fresh user data from database
       const user = await User.findById(req.user._id).select('-password');
       
       if (!user) {
@@ -293,7 +259,7 @@ const userController = {
       console.error('Get dashboard error:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error fetching dashboard data: ' + error.message 
+        message: 'Error fetching dashboard data'
       });
     }
   },
@@ -303,12 +269,11 @@ const userController = {
     try {
       const accessPin = await AccessPin.findOne();
       const user = await User.findById(req.user._id);
-      const hasPersonalPin = user.personalPin ? true : false;
       
       res.json({
         globalPin: accessPin ? accessPin.pin : '68120',
-        hasPersonalPin,
-        personalPin: hasPersonalPin ? 'Set (hidden for security)' : 'Not set'
+        hasPersonalPin: !!user.personalPin,
+        personalPinSet: user.personalPin ? 'Yes' : 'No'
       });
     } catch (error) {
       console.error('Get PIN info error:', error);
@@ -319,11 +284,12 @@ const userController = {
   // Check if user is verified
   checkVerification: async (req, res) => {
     try {
-      const user = await User.findById(req.user._id).select('isVerified verifiedAt plans');
+      const user = await User.findById(req.user._id).select('isVerified verifiedAt plans personalPin');
       res.json({
         isVerified: user.isVerified || false,
         verifiedAt: user.verifiedAt,
-        plans: user.plans || []
+        plans: user.plans || [],
+        hasPersonalPin: !!user.personalPin
       });
     } catch (error) {
       console.error('Check verification error:', error);

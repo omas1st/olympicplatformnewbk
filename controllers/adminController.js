@@ -22,7 +22,7 @@ const adminController = {
     }
   },
 
-  // Send message to user - FIXED VERSION
+  // Send message to user
   sendMessage: async (req, res) => {
     try {
       const { userId } = req.params;
@@ -35,7 +35,6 @@ const adminController = {
         });
       }
 
-      // Find the user first
       const user = await User.findById(userId);
       if (!user) {
         return res.status(404).json({ 
@@ -44,7 +43,6 @@ const adminController = {
         });
       }
 
-      // Create notification with proper user reference
       const notification = new Notification({
         user: userId,
         message: `Admin: ${message.trim()}`,
@@ -54,8 +52,6 @@ const adminController = {
       
       await notification.save();
       
-      console.log(`Message sent to user ${userId} (${user.email}):`, message);
-
       res.json({ 
         success: true,
         message: 'Message sent successfully',
@@ -65,12 +61,12 @@ const adminController = {
       console.error('Send message error details:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error sending message: ' + error.message 
+        message: 'Error sending message' 
       });
     }
   },
 
-  // Set user plan - FIXED VERSION
+  // Set user plan
   setUserPlan: async (req, res) => {
     try {
       const { userId } = req.params;
@@ -91,11 +87,9 @@ const adminController = {
         });
       }
 
-      // Update user's plans (only one plan per user)
       user.plans = [plan];
       await user.save();
 
-      // Send notification to user about plan update
       const notification = new Notification({
         user: userId,
         message: `Your plan has been updated to: ${plan}. You can now access the winning numbers.`,
@@ -104,9 +98,6 @@ const adminController = {
       });
       await notification.save();
 
-      console.log(`Plan updated for user ${userId}: ${plan}`);
-
-      // Return updated user without password
       const updatedUser = await User.findById(userId).select('-password');
 
       res.json({ 
@@ -118,18 +109,16 @@ const adminController = {
       console.error('Set user plan error:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error setting user plan: ' + error.message 
+        message: 'Error setting user plan'
       });
     }
   },
 
-  // Get current access PIN - FIXED VERSION
+  // Get current access PIN
   getAccessPin: async (req, res) => {
     try {
-      // Try to find existing PIN
       let accessPin = await AccessPin.findOne();
       
-      // If no PIN exists, create one with default value
       if (!accessPin) {
         accessPin = await AccessPin.create({ 
           pin: '68120',
@@ -145,12 +134,11 @@ const adminController = {
       });
     } catch (error) {
       console.error('Get access PIN error:', error);
-      // Return default PIN in case of error
       res.json({ pin: '68120', updatedAt: new Date() });
     }
   },
 
-  // Update access PIN - COMPLETELY REWRITTEN VERSION
+  // Update access PIN
   updateAccessPin: async (req, res) => {
     try {
       const { pin } = req.body;
@@ -159,23 +147,20 @@ const adminController = {
         return res.status(400).json({ message: 'PIN must be exactly 5 digits' });
       }
 
-      // Use findOneAndUpdate with upsert to handle both create and update
       const accessPin = await AccessPin.findOneAndUpdate(
-        {}, // Empty filter to find the first/only document
+        {},
         { 
-          pin: pin,
+          pin: pin.trim(),
           updatedBy: req.user._id,
           updatedAt: new Date()
         },
         { 
-          upsert: true, // Create if doesn't exist
-          new: true,    // Return the updated document
-          setDefaultsOnInsert: true, // Use defaults when creating
-          runValidators: true // Run schema validators
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true,
+          runValidators: true
         }
       );
-
-      console.log('Access PIN updated successfully:', accessPin.pin);
 
       // Notify all users about PIN change
       try {
@@ -183,15 +168,13 @@ const adminController = {
         const notificationPromises = users.map(user => 
           new Notification({
             user: user._id,
-            message: 'Important: The access PIN has been updated. If you have issues accessing VIP content, please contact admin.',
+            message: 'Important: The global access PIN has been updated. If you have a personal PIN, continue using that.',
             type: 'system'
           }).save()
         );
         await Promise.all(notificationPromises);
-        console.log(`Notifications sent to ${users.length} users about PIN change`);
       } catch (notifyError) {
         console.error('Error sending notifications:', notifyError);
-        // Continue even if notifications fail
       }
 
       res.json({ 
@@ -204,12 +187,12 @@ const adminController = {
       console.error('Update access PIN error details:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error updating access PIN: ' + error.message 
+        message: 'Error updating access PIN'
       });
     }
   },
 
-  // Set user-specific PIN
+  // Set user-specific PIN - FIXED VERSION
   setUserPin: async (req, res) => {
     try {
       const { userId } = req.params;
@@ -217,31 +200,60 @@ const adminController = {
 
       // Validate PIN format
       if (!pin || pin.length !== 5 || !/^\d+$/.test(pin)) {
-        return res.status(400).json({ message: 'PIN must be exactly 5 digits' });
+        return res.status(400).json({ 
+          success: false,
+          message: 'PIN must be exactly 5 digits' 
+        });
       }
+
+      // Trim the PIN to remove any whitespace
+      const trimmedPin = pin.trim();
 
       const user = await User.findByIdAndUpdate(
         userId,
-        { personalPin: pin },
+        { 
+          personalPin: trimmedPin,
+          isVerified: false // Reset verification when PIN is changed
+        },
         { new: true }
       ).select('-password');
 
       if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
       }
+
+      console.log(`Personal PIN set for user ${userId}: ${trimmedPin}`);
 
       // Send notification to user
       const notification = new Notification({
         user: userId,
-        message: `Your personal PIN has been set. Use this PIN to access VIP features.`,
+        message: `Your personal PIN has been set to: ${trimmedPin}. Use this PIN to access VIP features.`,
         type: 'pin_update'
       });
       await notification.save();
 
-      res.json({ message: 'User PIN set successfully', user });
+      // Also send email notification
+      try {
+        await emailService.sendPinUpdateNotification(user.toObject(), trimmedPin);
+      } catch (emailError) {
+        console.error('Failed to send PIN update email:', emailError);
+      }
+
+      res.json({ 
+        success: true,
+        message: 'User PIN set successfully',
+        user,
+        pin: trimmedPin
+      });
     } catch (error) {
       console.error('Set user PIN error:', error);
-      res.status(500).json({ message: 'Error setting user PIN' });
+      res.status(500).json({ 
+        success: false,
+        message: 'Error setting user PIN'
+      });
     }
   },
 
@@ -270,7 +282,6 @@ const adminController = {
         winningNumbers = new WinningNumber();
       }
 
-      // Update numbers
       winningNumbers.lunchtime = lunchtime;
       winningNumbers.teatime = teatime;
       winningNumbers.goslotto536 = goslotto536;
@@ -297,7 +308,6 @@ const adminController = {
         return res.status(400).json({ message: 'No winning numbers found' });
       }
 
-      // Create combined past winning record
       const pastWinning = new PastWinning({
         date: new Date(date),
         lotteryType: 'Combined Results',
@@ -367,42 +377,29 @@ const adminController = {
     }
   },
 
-  // Upload carousel images - FIXED VERSION FOR MEMORY STORAGE
+  // Upload carousel images
   uploadCarousel: async (req, res) => {
     try {
-      console.log('[DEBUG] Upload carousel request received');
-      console.log('[DEBUG] Files:', req.files);
-      console.log('[DEBUG] User:', req.user._id);
-
       if (!req.files || req.files.length === 0) {
-        console.log('[DEBUG] No files provided');
         return res.status(400).json({ message: 'No image files provided' });
       }
 
       const uploadedImages = [];
       const errors = [];
 
-      // Get current count for ordering
       const currentCount = await Carousel.countDocuments();
-      console.log('[DEBUG] Current carousel count:', currentCount);
 
-      // Process files one by one
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
-        console.log(`[DEBUG] Processing file ${i + 1}/${req.files.length}:`, file.originalname);
 
         try {
-          // Upload to Cloudinary using the uploadToCloudinary function with carousel folder
           const cloudinaryResult = await uploadToCloudinary(
             file.buffer, 
             req.user._id, 
-            file.mimetype, 
-            'olympic/carousel' // Specify carousel folder
+            file.mimetype,
+            'olympic/carousel'
           );
 
-          console.log('[DEBUG] Cloudinary upload successful:', cloudinaryResult.secure_url);
-
-          // Create carousel document with explicit dates to avoid middleware issues
           const carouselImage = new Carousel({
             imageUrl: cloudinaryResult.secure_url,
             publicId: cloudinaryResult.public_id,
@@ -412,19 +409,14 @@ const adminController = {
             updatedAt: new Date()
           });
 
-          // Save without triggering the pre-save middleware issues
           const savedImage = await carouselImage.save({ validateBeforeSave: true });
-          console.log('[DEBUG] Image saved to database:', savedImage._id);
-
           uploadedImages.push(savedImage);
 
         } catch (fileError) {
-          console.error(`[ERROR] Error processing file ${file.originalname}:`, fileError);
+          console.error(`Error processing file ${file.originalname}:`, fileError);
           errors.push(`${file.originalname}: ${fileError.message}`);
         }
       }
-
-      console.log('[DEBUG] Upload completed. Success:', uploadedImages.length, 'Errors:', errors.length);
 
       if (uploadedImages.length === 0) {
         const errorMsg = errors.length > 0 
@@ -446,10 +438,10 @@ const adminController = {
       });
 
     } catch (error) {
-      console.error('[ERROR] Upload carousel error:', error);
+      console.error('Upload carousel error:', error);
       res.status(500).json({
         success: false,
-        message: 'Error uploading images: ' + (error.message || 'Unknown error')
+        message: 'Error uploading images'
       });
     }
   },
@@ -464,18 +456,13 @@ const adminController = {
         return res.status(404).json({ message: 'Image not found' });
       }
 
-      // Delete from Cloudinary
       try {
         await cloudinary.uploader.destroy(carouselImage.publicId);
-        console.log('[DEBUG] Image deleted from Cloudinary:', carouselImage.publicId);
       } catch (cloudinaryError) {
-        console.error('[DEBUG] Cloudinary delete error:', cloudinaryError);
-        // Continue with database deletion even if Cloudinary fails
+        console.error('Cloudinary delete error:', cloudinaryError);
       }
 
-      // Delete from database
       await Carousel.findByIdAndDelete(id);
-      console.log('[DEBUG] Image deleted from database:', id);
 
       res.json({ 
         success: true,
@@ -502,21 +489,15 @@ const adminController = {
         });
       }
 
-      console.log('[DEBUG] Deleting all carousel images:', carouselImages.length);
-
-      // Delete each image from Cloudinary
       for (const image of carouselImages) {
         try {
           await cloudinary.uploader.destroy(image.publicId);
-          console.log('[DEBUG] Deleted from Cloudinary:', image.publicId);
         } catch (error) {
-          console.error(`[DEBUG] Failed to delete image ${image.publicId} from Cloudinary:`, error);
+          console.error(`Failed to delete image ${image.publicId} from Cloudinary:`, error);
         }
       }
 
-      // Delete all from database
       await Carousel.deleteMany({});
-      console.log('[DEBUG] All images deleted from database');
 
       res.json({ 
         success: true,
@@ -565,7 +546,6 @@ const adminController = {
         return res.status(404).json({ message: 'User not found' });
       }
 
-      // Add plan if not exists
       if (!user.plans.includes(plan)) {
         user.plans.push(plan);
         await user.save();
@@ -618,7 +598,6 @@ const adminController = {
         return res.status(404).json({ message: 'User not found' });
       }
 
-      // Also delete user's notifications and messages
       await Notification.deleteMany({ user: userId });
       await Message.deleteMany({ from: userId });
 
@@ -637,7 +616,6 @@ const adminController = {
       const totalMessages = await Message.countDocuments();
       const totalNotifications = await Notification.countDocuments();
       
-      // Get recent users (last 7 days)
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
       const recentUsers = await User.countDocuments({ 
@@ -658,5 +636,8 @@ const adminController = {
     }
   }
 };
+
+// Add emailService import at the top of your file
+const emailService = require('../utils/emailService');
 
 module.exports = adminController;
