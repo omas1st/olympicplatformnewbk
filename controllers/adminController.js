@@ -8,8 +8,7 @@ const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const AccessPin = require('../models/AccessPin');
 const cloudinary = require('../config/cloudinary');
-const fs = require('fs');
-const path = require('path');
+const { uploadToCloudinary } = require('../middleware/upload');
 
 const adminController = {
   // Get all users
@@ -368,7 +367,7 @@ const adminController = {
     }
   },
 
-  // Upload carousel images - SIMPLIFIED AND FIXED VERSION
+  // Upload carousel images - FIXED VERSION FOR MEMORY STORAGE
   uploadCarousel: async (req, res) => {
     try {
       console.log('[DEBUG] Upload carousel request received');
@@ -393,11 +392,13 @@ const adminController = {
         console.log(`[DEBUG] Processing file ${i + 1}/${req.files.length}:`, file.originalname);
 
         try {
-          // Upload to Cloudinary
-          const cloudinaryResult = await cloudinary.uploader.upload(file.path, {
-            folder: 'olympic/carousel',
-            resource_type: 'image'
-          });
+          // Upload to Cloudinary using the uploadToCloudinary function with carousel folder
+          const cloudinaryResult = await uploadToCloudinary(
+            file.buffer, 
+            req.user._id, 
+            file.mimetype, 
+            'olympic/carousel' // Specify carousel folder
+          );
 
           console.log('[DEBUG] Cloudinary upload successful:', cloudinaryResult.secure_url);
 
@@ -417,28 +418,9 @@ const adminController = {
 
           uploadedImages.push(savedImage);
 
-          // Delete local file
-          try {
-            if (fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-              console.log('[DEBUG] Local file deleted:', file.path);
-            }
-          } catch (unlinkError) {
-            console.error('[DEBUG] Error deleting local file:', unlinkError);
-          }
-
         } catch (fileError) {
           console.error(`[ERROR] Error processing file ${file.originalname}:`, fileError);
           errors.push(`${file.originalname}: ${fileError.message}`);
-          
-          // Clean up local file
-          try {
-            if (fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-            }
-          } catch (cleanupError) {
-            console.error('[DEBUG] Error cleaning up file:', cleanupError);
-          }
         }
       }
 
