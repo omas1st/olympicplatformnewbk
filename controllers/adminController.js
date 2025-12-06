@@ -10,7 +10,7 @@ const AccessPin = require('../models/AccessPin');
 const Deposit = require('../models/Deposit'); // New model
 const cloudinary = require('../config/cloudinary');
 const { uploadToCloudinary } = require('../middleware/upload');
-const emailService = require('../utils/emailService'); // Moved to top for consistency
+const emailService = require('../utils/emailService');
 
 const adminController = {
   // Get all users
@@ -63,7 +63,7 @@ const adminController = {
       deposit.approvedAt = new Date();
       await deposit.save();
 
-      // Update user balance
+      // Update user balance (add deposit amount to user's balance)
       const user = await User.findById(deposit.user._id);
       if (user) {
         user.balance = (user.balance || 0) + deposit.amount;
@@ -92,10 +92,13 @@ const adminController = {
     }
   },
 
-  // Reject deposit
+  // Reject deposit - FIXED VERSION (does NOT add to user balance)
   rejectDeposit: async (req, res) => {
     try {
       const { depositId } = req.params;
+      const { reason } = req.body;
+
+      console.log('Rejecting deposit:', depositId, 'Reason:', reason);
 
       const deposit = await Deposit.findById(depositId).populate('user');
       if (!deposit) {
@@ -105,31 +108,57 @@ const adminController = {
         });
       }
 
+      if (deposit.status !== 'proof_uploaded') {
+        return res.status(400).json({ 
+          success: false,
+          message: `Deposit cannot be rejected because it is already ${deposit.status}.` 
+        });
+      }
+
       // Update deposit status
       deposit.status = 'rejected';
       deposit.rejectedBy = req.user._id;
       deposit.rejectedAt = new Date();
-      deposit.rejectionReason = req.body.reason || 'No reason provided';
+      deposit.rejectionReason = reason || 'No reason provided';
       await deposit.save();
 
-      // Send notification to user
+      // Get user details for notification
+      const user = await User.findById(deposit.user._id).select('-password');
+
+      // Send notification to user (DO NOT update balance)
       const notification = new Notification({
         user: deposit.user._id,
-        message: `Your deposit of R${deposit.amount.toFixed(2)} has been rejected. Reason: ${deposit.rejectionReason}`,
+        message: `Your deposit of R${deposit.amount.toFixed(2)} has been rejected. Reason: ${deposit.rejectionReason}. Your balance remains unchanged.`,
         type: 'system'
       });
       await notification.save();
 
+      // Send email notification if email service is configured
+      try {
+        if (emailService) {
+          await emailService.sendDepositRejectionNotification(
+            user.toObject(), 
+            deposit.amount, 
+            deposit.currency, 
+            deposit.rejectionReason
+          );
+        }
+      } catch (emailError) {
+        console.error('Failed to send rejection email:', emailError);
+        // Don't fail the request if email fails
+      }
+
       res.json({ 
         success: true,
-        message: 'Deposit rejected successfully',
+        message: 'Deposit rejected successfully. User balance remains unchanged.',
         deposit: deposit
       });
     } catch (error) {
       console.error('Reject deposit error:', error);
+      console.error('Error stack:', error.stack);
       res.status(500).json({ 
         success: false,
-        message: 'Error rejecting deposit'
+        message: 'Error rejecting deposit: ' + error.message
       });
     }
   },
@@ -349,7 +378,9 @@ const adminController = {
 
       // Also send email notification
       try {
-        await emailService.sendPinUpdateNotification(user.toObject(), trimmedPin);
+        if (emailService) {
+          await emailService.sendPinUpdateNotification(user.toObject(), trimmedPin);
+        }
       } catch (emailError) {
         console.error('Failed to send PIN update email:', emailError);
       }
