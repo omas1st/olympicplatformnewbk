@@ -7,8 +7,10 @@ const PastWinning = require('../models/PastWinning');
 const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const AccessPin = require('../models/AccessPin');
+const Deposit = require('../models/Deposit'); // New model
 const cloudinary = require('../config/cloudinary');
 const { uploadToCloudinary } = require('../middleware/upload');
+const emailService = require('../utils/emailService'); // Moved to top for consistency
 
 const adminController = {
   // Get all users
@@ -19,6 +21,116 @@ const adminController = {
     } catch (error) {
       console.error('Get users error:', error);
       res.status(500).json({ message: 'Error fetching users' });
+    }
+  },
+
+  // Get pending deposits
+  getPendingDeposits: async (req, res) => {
+    try {
+      const deposits = await Deposit.find({ status: 'proof_uploaded' })
+        .populate('user', 'name email')
+        .sort({ createdAt: -1 });
+      res.json(deposits);
+    } catch (error) {
+      console.error('Get pending deposits error:', error);
+      res.status(500).json({ message: 'Error fetching pending deposits' });
+    }
+  },
+
+  // Approve deposit
+  approveDeposit: async (req, res) => {
+    try {
+      const { depositId } = req.params;
+
+      const deposit = await Deposit.findById(depositId).populate('user');
+      if (!deposit) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Deposit not found' 
+        });
+      }
+
+      if (deposit.status !== 'proof_uploaded') {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Deposit cannot be approved in its current state' 
+        });
+      }
+
+      // Update deposit status
+      deposit.status = 'approved';
+      deposit.approvedBy = req.user._id;
+      deposit.approvedAt = new Date();
+      await deposit.save();
+
+      // Update user balance
+      const user = await User.findById(deposit.user._id);
+      if (user) {
+        user.balance = (user.balance || 0) + deposit.amount;
+        await user.save();
+      }
+
+      // Send notification to user
+      const notification = new Notification({
+        user: deposit.user._id,
+        message: `Your deposit of R${deposit.amount.toFixed(2)} has been approved. Your new balance is R${user.balance.toFixed(2)}.`,
+        type: 'system'
+      });
+      await notification.save();
+
+      res.json({ 
+        success: true,
+        message: 'Deposit approved successfully',
+        deposit: deposit
+      });
+    } catch (error) {
+      console.error('Approve deposit error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error approving deposit'
+      });
+    }
+  },
+
+  // Reject deposit
+  rejectDeposit: async (req, res) => {
+    try {
+      const { depositId } = req.params;
+
+      const deposit = await Deposit.findById(depositId).populate('user');
+      if (!deposit) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Deposit not found' 
+        });
+      }
+
+      // Update deposit status
+      deposit.status = 'rejected';
+      deposit.rejectedBy = req.user._id;
+      deposit.rejectedAt = new Date();
+      deposit.rejectionReason = req.body.reason || 'No reason provided';
+      await deposit.save();
+
+      // Send notification to user
+      const notification = new Notification({
+        user: deposit.user._id,
+        message: `Your deposit of R${deposit.amount.toFixed(2)} has been rejected. Reason: ${deposit.rejectionReason}`,
+        type: 'system'
+      });
+      await notification.save();
+
+      res.json({ 
+        success: true,
+        message: 'Deposit rejected successfully',
+        deposit: deposit
+      });
+    } catch (error) {
+      console.error('Reject deposit error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error rejecting deposit'
+      });
     }
   },
 
@@ -192,7 +304,7 @@ const adminController = {
     }
   },
 
-  // Set user-specific PIN - FIXED VERSION
+  // Set user-specific PIN
   setUserPin: async (req, res) => {
     try {
       const { userId } = req.params;
@@ -227,7 +339,7 @@ const adminController = {
 
       console.log(`Personal PIN set for user ${userId}: ${trimmedPin}`);
 
-      // Send notification to user
+      // Send notification to user ONLY for personal PIN
       const notification = new Notification({
         user: userId,
         message: `Your personal PIN has been set to: ${trimmedPin}. Use this PIN to access VIP features.`,
@@ -518,20 +630,40 @@ const adminController = {
       const { userId } = req.params;
       const { balance } = req.body;
 
+      console.log('Updating balance for user:', userId, 'New balance:', balance);
+
       const user = await User.findByIdAndUpdate(
         userId,
-        { balance },
+        { balance: parseFloat(balance) },
         { new: true }
       ).select('-password');
 
       if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
       }
 
-      res.json({ message: 'Balance updated successfully', user });
+      // Create notification for user
+      const notification = new Notification({
+        user: userId,
+        message: `Your balance has been updated to R${parseFloat(balance).toFixed(2)}.`,
+        type: 'system'
+      });
+      await notification.save();
+
+      res.json({ 
+        success: true,
+        message: 'Balance updated successfully',
+        user
+      });
     } catch (error) {
       console.error('Update balance error:', error);
-      res.status(500).json({ message: 'Error updating balance' });
+      res.status(500).json({ 
+        success: false,
+        message: 'Error updating balance: ' + error.message 
+      });
     }
   },
 
@@ -543,7 +675,10 @@ const adminController = {
 
       const user = await User.findById(userId);
       if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
       }
 
       if (!user.plans.includes(plan)) {
@@ -551,10 +686,25 @@ const adminController = {
         await user.save();
       }
 
-      res.json({ message: 'Plan activated successfully', user });
+      // Create notification for user
+      const notification = new Notification({
+        user: userId,
+        message: `Plan "${plan}" has been activated for your account.`,
+        type: 'plan_update'
+      });
+      await notification.save();
+
+      res.json({ 
+        success: true,
+        message: 'Plan activated successfully',
+        user
+      });
     } catch (error) {
       console.error('Activate plan error:', error);
-      res.status(500).json({ message: 'Error activating plan' });
+      res.status(500).json({ 
+        success: false,
+        message: 'Error activating plan'
+      });
     }
   },
 
@@ -578,13 +728,19 @@ const adminController = {
       const user = await User.findById(userId).select('-password');
       
       if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
       }
 
       res.json(user);
     } catch (error) {
       console.error('Get user by ID error:', error);
-      res.status(500).json({ message: 'Error fetching user details' });
+      res.status(500).json({ 
+        success: false,
+        message: 'Error fetching user details' 
+      });
     }
   },
 
@@ -595,16 +751,25 @@ const adminController = {
       const user = await User.findByIdAndDelete(userId);
       
       if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
       }
 
       await Notification.deleteMany({ user: userId });
       await Message.deleteMany({ from: userId });
 
-      res.json({ message: 'User deleted successfully' });
+      res.json({ 
+        success: true,
+        message: 'User deleted successfully' 
+      });
     } catch (error) {
       console.error('Delete user error:', error);
-      res.status(500).json({ message: 'Error deleting user' });
+      res.status(500).json({ 
+        success: false,
+        message: 'Error deleting user' 
+      });
     }
   },
 
@@ -615,6 +780,7 @@ const adminController = {
       const verifiedUsers = await User.countDocuments({ isVerified: true });
       const totalMessages = await Message.countDocuments();
       const totalNotifications = await Notification.countDocuments();
+      const pendingDeposits = await Deposit.countDocuments({ status: 'proof_uploaded' });
       
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
@@ -627,17 +793,18 @@ const adminController = {
         verifiedUsers,
         totalMessages,
         totalNotifications,
+        pendingDeposits,
         recentUsers,
         verificationRate: totalUsers > 0 ? (verifiedUsers / totalUsers * 100).toFixed(2) : 0
       });
     } catch (error) {
       console.error('Get statistics error:', error);
-      res.status(500).json({ message: 'Error fetching statistics' });
+      res.status(500).json({ 
+        success: false,
+        message: 'Error fetching statistics' 
+      });
     }
   }
 };
-
-// Add emailService import at the top of your file
-const emailService = require('../utils/emailService');
 
 module.exports = adminController;

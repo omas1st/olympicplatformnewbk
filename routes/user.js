@@ -24,7 +24,11 @@ router.post('/verify-user', userController.verifyUser);
 // Message routes
 router.post('/send-message', userController.sendMessage);
 
-// File upload routes
+// Deposit routes - ADD THESE
+router.post('/submit-deposit', userController.submitDeposit);
+router.post('/upload-deposit-proof', multerUpload.single('proof'), userController.uploadDepositProof);
+
+// File upload routes (original proof upload - keep for compatibility)
 router.post('/upload-proof', multerUpload.single('proof'), userController.uploadProof);
 
 module.exports = router;

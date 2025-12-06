@@ -52,7 +52,7 @@ const userSchema = new mongoose.Schema({
   },
   currency: {
     type: String,
-    default: 'USD'
+    default: 'ZAR' // Changed from USD to ZAR
   },
   plans: [{
     type: String
@@ -72,6 +72,9 @@ const userSchema = new mongoose.Schema({
   },
   verifiedAt: {
     type: Date
+  },
+  cloudinaryPublicId: {
+    type: String
   }
 }, {
   timestamps: true
@@ -104,6 +107,7 @@ userSchema.methods.toJSON = function() {
   const user = this.toObject();
   delete user.password;
   delete user.personalPin;
+  delete user.cloudinaryPublicId;
   return user;
 };
 

@@ -2,11 +2,12 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const AccessPin = require('../models/AccessPin');
+const Deposit = require('../models/Deposit');
 const emailService = require('../utils/emailService');
 const { uploadToCloudinary } = require('../middleware/upload');
 
 const userController = {
-  // Get user notifications - FIXED VERSION
+  // Get user notifications
   getNotifications: async (req, res) => {
     try {
       const { userId } = req.params;
@@ -53,7 +54,7 @@ const userController = {
     }
   },
 
-  // Upload proof of payment
+  // Upload proof of payment (for general use)
   uploadProof: async (req, res) => {
     try {
       if (!req.file) {
@@ -95,7 +96,271 @@ const userController = {
     }
   },
 
-  // Verify PIN - FIXED VERSION
+  // Submit deposit request - FIXED VERSION
+  submitDeposit: async (req, res) => {
+    try {
+      console.log('Submit deposit request received:', req.body);
+      console.log('User ID:', req.user._id);
+
+      const { amount, paymentMethod, currency } = req.body;
+
+      // Validate amount
+      if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Please enter a valid deposit amount' 
+        });
+      }
+
+      // Validate payment method
+      const validPaymentMethods = ['bank_transfer', 'cryptocurrency'];
+      if (!paymentMethod || !validPaymentMethods.includes(paymentMethod)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Please select a valid payment method' 
+        });
+      }
+
+      // Parse the amount to ensure it's a number
+      const depositAmount = parseFloat(amount);
+
+      // Create deposit record
+      const deposit = new Deposit({
+        user: req.user._id,
+        amount: depositAmount,
+        paymentMethod: paymentMethod,
+        currency: currency || 'ZAR',
+        status: 'pending'
+      });
+
+      console.log('Creating deposit record:', deposit);
+
+      // Save deposit
+      await deposit.save();
+      console.log('Deposit saved successfully, ID:', deposit._id);
+
+      // Send notification to user about deposit request
+      const userNotification = new Notification({
+        user: req.user._id,
+        message: `Your deposit request of ${currency || 'ZAR'} ${depositAmount.toFixed(2)} has been submitted. Please upload proof of payment.`,
+        type: 'system'
+      });
+      await userNotification.save();
+
+      // Also create a notification for admin (optional, you might want to handle this differently)
+      try {
+        const adminNotification = new Notification({
+          user: req.user._id, // This would be better with an admin user ID
+          message: `New deposit request: ${currency || 'ZAR'} ${depositAmount.toFixed(2)} from user ${req.user.email}`,
+          type: 'admin_message'
+        });
+        await adminNotification.save();
+      } catch (adminNotifyError) {
+        console.error('Failed to create admin notification:', adminNotifyError);
+        // Don't fail the whole request if admin notification fails
+      }
+
+      // Send email notification if email service is configured
+      try {
+        const user = await User.findById(req.user._id).select('-password');
+        if (user && emailService) {
+          await emailService.sendDepositRequestNotification(
+            user.toObject(), 
+            depositAmount, 
+            currency || 'ZAR',
+            paymentMethod
+          );
+        }
+      } catch (emailError) {
+        console.error('Failed to send email:', emailError);
+        // Don't fail the whole request if email fails
+      }
+
+      res.json({ 
+        success: true,
+        message: 'Deposit request submitted successfully. Please upload proof of payment.',
+        depositId: deposit._id,
+        deposit: deposit
+      });
+
+    } catch (error) {
+      console.error('Submit deposit error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+
+      let errorMessage = 'Error submitting deposit request';
+      
+      if (error.name === 'ValidationError') {
+        errorMessage = 'Validation error: ' + Object.values(error.errors).map(err => err.message).join(', ');
+        return res.status(400).json({ 
+          success: false,
+          message: errorMessage
+        });
+      }
+
+      res.status(500).json({ 
+        success: false,
+        message: errorMessage,
+        debug: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  },
+
+  // Upload deposit proof
+  uploadDepositProof: async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'No file provided' 
+        });
+      }
+
+      // Check file type and size
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+      if (!allowedTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid file type. Only JPG, PNG, and PDF are allowed.' 
+        });
+      }
+
+      if (req.file.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'File size too large. Maximum size is 5MB.' 
+        });
+      }
+
+      // Upload to Cloudinary
+      console.log('Uploading deposit proof to Cloudinary for user:', req.user._id);
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer, 
+        req.user._id, 
+        req.file.mimetype,
+        'deposit_proofs'
+      );
+
+      console.log('Cloudinary upload successful:', uploadResult.secure_url);
+
+      // Find the user's latest pending deposit
+      const deposit = await Deposit.findOne({
+        user: req.user._id,
+        status: 'pending'
+      }).sort({ createdAt: -1 });
+
+      if (!deposit) {
+        // Create a new deposit record if none exists
+        console.log('No pending deposit found, creating new one');
+        const newDeposit = new Deposit({
+          user: req.user._id,
+          amount: 0,
+          paymentMethod: 'unknown',
+          currency: 'ZAR',
+          status: 'proof_uploaded',
+          proofUrl: uploadResult.secure_url,
+          proofPublicId: uploadResult.public_id
+        });
+        
+        await newDeposit.save();
+
+        // Create notification for user
+        const notification = new Notification({
+          user: req.user._id,
+          message: 'Proof of payment uploaded successfully. Please wait for admin approval.',
+          type: 'system'
+        });
+        await notification.save();
+
+        res.json({ 
+          success: true,
+          message: 'Proof of payment uploaded successfully. Please wait for admin approval.',
+          deposit: newDeposit,
+          cloudinaryUrl: uploadResult.secure_url
+        });
+        return;
+      }
+
+      // Update existing deposit with proof
+      console.log('Updating deposit:', deposit._id, 'with proof');
+      deposit.proofUrl = uploadResult.secure_url;
+      deposit.proofPublicId = uploadResult.public_id;
+      deposit.status = 'proof_uploaded';
+      await deposit.save();
+
+      // Get user info for email
+      const user = await User.findById(req.user._id).select('-password');
+
+      // Send email notification to admin
+      try {
+        if (emailService) {
+          await emailService.sendDepositProofNotification(
+            user.toObject(), 
+            deposit.amount, 
+            deposit.currency, 
+            uploadResult.secure_url
+          );
+        }
+      } catch (emailError) {
+        console.error('Failed to send email:', emailError);
+      }
+
+      // Create notification for user
+      const notification = new Notification({
+        user: req.user._id,
+        message: `Your deposit proof for ${deposit.currency} ${deposit.amount} has been uploaded successfully. Waiting for admin approval.`,
+        type: 'system'
+      });
+      await notification.save();
+
+      // Create notification for admin
+      try {
+        const adminNotification = new Notification({
+          user: req.user._id,
+          message: `Deposit proof uploaded by ${user.email} for amount ${deposit.currency} ${deposit.amount}. Please review.`,
+          type: 'admin_message'
+        });
+        await adminNotification.save();
+      } catch (adminNotifyError) {
+        console.error('Failed to create admin notification:', adminNotifyError);
+      }
+
+      res.json({ 
+        success: true,
+        message: 'Proof of payment uploaded successfully. Admin has been notified and will review your deposit.',
+        deposit: deposit,
+        cloudinaryUrl: uploadResult.secure_url
+      });
+    } catch (error) {
+      console.error('Upload deposit proof error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      let errorMessage = 'Error uploading proof of payment';
+      
+      if (error.name === 'ValidationError') {
+        errorMessage = 'Validation error: ' + Object.values(error.errors).map(err => err.message).join(', ');
+        return res.status(400).json({ 
+          success: false,
+          message: errorMessage
+        });
+      }
+
+      res.status(500).json({ 
+        success: false,
+        message: errorMessage,
+        debug: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  },
+
+  // Verify PIN
   verifyPin: async (req, res) => {
     try {
       const { pin } = req.body;
@@ -135,13 +400,23 @@ const userController = {
         user.verifiedAt = new Date();
         await user.save();
 
-        // Send notification
+        // Create notification
+        const notification = new Notification({
+          user: user._id,
+          message: 'Personal PIN verification successful. VIP access granted.',
+          type: 'pin_update'
+        });
+        await notification.save();
+
+        // Send email notification
         try {
-          await emailService.sendPinSubmissionNotification(
-            user.toObject(), 
-            'Personal PIN Verification Successful', 
-            pin
-          );
+          if (emailService) {
+            await emailService.sendPinSubmissionNotification(
+              user.toObject(), 
+              'Personal PIN Verification Successful', 
+              pin
+            );
+          }
         } catch (emailError) {
           console.error('Failed to send email:', emailError);
         }
@@ -169,12 +444,22 @@ const userController = {
         user.verifiedAt = new Date();
         await user.save();
 
+        // Create notification
+        const notification = new Notification({
+          user: user._id,
+          message: 'Global PIN verification successful. VIP access granted.',
+          type: 'pin_update'
+        });
+        await notification.save();
+
         try {
-          await emailService.sendPinSubmissionNotification(
-            user.toObject(), 
-            'Global PIN Verification Successful', 
-            pin
-          );
+          if (emailService) {
+            await emailService.sendPinSubmissionNotification(
+              user.toObject(), 
+              'Global PIN Verification Successful', 
+              pin
+            );
+          }
         } catch (emailError) {
           console.error('Failed to send email:', emailError);
         }
@@ -189,12 +474,22 @@ const userController = {
       // THIRD: If no match, return error
       console.log('No PIN match for user:', user._id);
       
+      // Create notification for failed attempt
+      const notification = new Notification({
+        user: user._id,
+        message: 'Failed PIN attempt. Please contact admin for correct PIN.',
+        type: 'system'
+      });
+      await notification.save();
+
       try {
-        await emailService.sendPinSubmissionNotification(
-          user.toObject(), 
-          'Failed PIN Attempt', 
-          pin
-        );
+        if (emailService) {
+          await emailService.sendPinSubmissionNotification(
+            user.toObject(), 
+            'Failed PIN Attempt', 
+            pin
+          );
+        }
       } catch (emailError) {
         console.error('Failed to send email:', emailError);
       }
@@ -228,6 +523,14 @@ const userController = {
         { new: true }
       ).select('-password');
 
+      // Create notification
+      const notification = new Notification({
+        user: user._id,
+        message: `Account verification status updated to ${verified ? 'verified' : 'unverified'}.`,
+        type: verified ? 'pin_update' : 'system'
+      });
+      await notification.save();
+
       res.json({ 
         message: 'Verification status updated',
         user 
@@ -251,9 +554,16 @@ const userController = {
         .sort({ createdAt: -1 })
         .limit(20);
 
+      // Get pending deposits
+      const pendingDeposits = await Deposit.find({
+        user: req.user._id,
+        status: { $in: ['pending', 'proof_uploaded'] }
+      }).sort({ createdAt: -1 });
+
       res.json({
         user,
-        notifications
+        notifications,
+        pendingDeposits
       });
     } catch (error) {
       console.error('Get dashboard error:', error);
@@ -317,6 +627,14 @@ const userController = {
         updates,
         { new: true }
       ).select('-password');
+
+      // Create notification
+      const notification = new Notification({
+        user: user._id,
+        message: 'Your profile has been updated successfully.',
+        type: 'system'
+      });
+      await notification.save();
 
       res.json({
         message: 'Profile updated successfully',
