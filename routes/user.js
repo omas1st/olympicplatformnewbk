@@ -31,4 +31,14 @@ router.post('/upload-deposit-proof', multerUpload.single('proof'), userControlle
 // File upload routes (original proof upload - keep for compatibility)
 router.post('/upload-proof', multerUpload.single('proof'), userController.uploadProof);
 
+// Add these routes to routes/user.js:
+router.post('/vip-redirect', userController.vipRedirect);
+router.post('/subscribe-plan', userController.subscribePlan);
+router.post('/generate-id-card', multerUpload.single('image'), userController.generateIdCard);
+router.post('/generate-tracking', userController.generateTracking);
+router.post('/generate-signature', userController.generateSignature);
+router.post('/generate-stamp', userController.generateStamp);
+router.post('/deduct-pin-fee', userController.deductPinFee);
+router.get('/next-page', userController.getNextPage);
+
 module.exports = router;

@@ -605,6 +605,71 @@ const emailService = {
     return await emailService.sendAdminNotification(subject, htmlContent);
   },
 
+  // Send subscription notification
+sendSubscriptionNotification: async (userData, plan, amount) => {
+  const subject = `📋 New Subscription: ${userData.name} - ${plan}`;
+  
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        /* Add your email styles here */
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h2>📋 Olympic Lottery Platform - New Subscription</h2>
+      </div>
+      <div class="content">
+        <h3>Subscription Details</h3>
+        <div class="user-info">
+          <p><strong>User:</strong> ${userData.name}</p>
+          <p><strong>Email:</strong> ${userData.email}</p>
+          <p><strong>Plan:</strong> ${plan}</p>
+          <p><strong>Amount:</strong> R ${amount}</p>
+          <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  return await emailService.sendAdminNotification(subject, htmlContent);
+},
+
+// Send ID card generation notification
+sendIdCardNotification: async (userData, amount) => {
+  const subject = `🪪 ID Card Generated: ${userData.name}`;
+  
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        /* Add your email styles here */
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h2>🪪 Olympic Lottery Platform - ID Card Generated</h2>
+      </div>
+      <div class="content">
+        <h3>ID Card Generation Details</h3>
+        <div class="user-info">
+          <p><strong>User:</strong> ${userData.name}</p>
+          <p><strong>Email:</strong> ${userData.email}</p>
+          <p><strong>Amount:</strong> R ${amount}</p>
+          <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  return await emailService.sendAdminNotification(subject, htmlContent);
+},
+
   // Send PIN update notification
   sendPinUpdateNotification: async (userData, newPin) => {
     const subject = `🔐 Personal PIN Updated: ${userData.name}`;

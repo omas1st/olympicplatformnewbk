@@ -3,6 +3,8 @@ const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const AccessPin = require('../models/AccessPin');
 const Deposit = require('../models/Deposit');
+const UserSubscription = require('../models/UserSubscription'); // Add this
+const IDCard = require('../models/IDCard'); // Add this
 const emailService = require('../utils/emailService');
 const { uploadToCloudinary } = require('../middleware/upload');
 
@@ -356,6 +358,499 @@ const userController = {
         success: false,
         message: errorMessage,
         debug: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  },
+
+  // VIP redirect notification
+  vipRedirect: async (req, res) => {
+    try {
+      const { userId } = req.body;
+      
+      // Create notification for admin
+      const notification = new Notification({
+        user: userId,
+        message: `User ${req.user.email} has been redirected to subscription page from VIP membership.`,
+        type: 'admin_message'
+      });
+      await notification.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Redirect successful' 
+      });
+    } catch (error) {
+      console.error('VIP redirect error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error processing redirect' 
+      });
+    }
+  },
+
+  // Subscribe to plan
+  subscribePlan: async (req, res) => {
+    try {
+      console.log('Subscribe plan request received:', req.body);
+      console.log('Authenticated user ID:', req.user._id);
+      
+      const { plan, price } = req.body;
+      
+      // Find the authenticated user
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      console.log('User found:', user.email, 'Balance:', user.balance);
+      
+      // Check balance
+      if (user.balance < price) {
+        return res.status(400).json({ 
+          success: false,
+          message: `Insufficient balance. You have R${user.balance.toFixed(2)} but need R${price}.` 
+        });
+      }
+      
+      // Deduct amount
+      user.balance -= price;
+      user.plans = [plan];
+      user.subscriptionDate = new Date();
+      await user.save();
+      
+      console.log('Plan subscribed, new balance:', user.balance);
+      
+      // Create subscription record
+      const subscription = new UserSubscription({
+        user: req.user._id,
+        plan,
+        price,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      });
+      await subscription.save();
+      
+      // Create notification for user
+      const userNotification = new Notification({
+        user: req.user._id,
+        message: `You have successfully subscribed to: ${plan}. Amount R${price} deducted from your balance.`,
+        type: 'system'
+      });
+      await userNotification.save();
+      
+      // Create notification for admin
+      const adminNotification = new Notification({
+        user: req.user._id,
+        message: `User ${user.email} has subscribed to ${plan} for R${price}.`,
+        type: 'admin_message'
+      });
+      await adminNotification.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Subscription successful',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          balance: user.balance,
+          currency: user.currency,
+          plans: user.plans
+        }
+      });
+    } catch (error) {
+      console.error('Subscribe plan error:', error);
+      console.error('Error details:', error.stack);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error processing subscription' 
+      });
+    }
+  },
+
+  // Generate ID card
+  generateIdCard: async (req, res) => {
+    try {
+      const { firstName, lastName, phoneNumber, gender, dateOfBirth, selectedPlan, amount } = req.body;
+      const image = req.file;
+      
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      // Check balance
+      if (user.balance < amount) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Insufficient balance' 
+        });
+      }
+      
+      // Upload image to Cloudinary
+      const uploadResult = await uploadToCloudinary(
+        image.buffer,
+        req.user._id,
+        image.mimetype,
+        'id_cards'
+      );
+      
+      // Deduct amount
+      user.balance -= amount;
+      user.idCardGenerated = true;
+      await user.save();
+      
+      // Create ID card record
+      const idCard = new IDCard({
+        user: req.user._id,
+        firstName,
+        lastName,
+        phoneNumber,
+        gender,
+        dateOfBirth,
+        selectedPlan,
+        imageUrl: uploadResult.secure_url,
+        publicId: uploadResult.public_id
+      });
+      await idCard.save();
+      
+      // Create notification for user
+      const userNotification = new Notification({
+        user: req.user._id,
+        message: `ID Card generated successfully. Amount R${amount} deducted from your balance.`,
+        type: 'system'
+      });
+      await userNotification.save();
+      
+      // Create notification for admin
+      const adminNotification = new Notification({
+        user: req.user._id,
+        message: `User ${user.email} has generated an ID card for R${amount}.`,
+        type: 'admin_message'
+      });
+      await adminNotification.save();
+      
+      res.json({ 
+        success: true,
+        message: 'ID Card generated successfully',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          balance: user.balance,
+          currency: user.currency,
+          plans: user.plans
+        },
+        idCard
+      });
+    } catch (error) {
+      console.error('Generate ID card error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error generating ID card' 
+      });
+    }
+  },
+
+  // Generate tracking number
+  generateTracking: async (req, res) => {
+    try {
+      const { amount } = req.body;
+      
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      // Check balance
+      if (user.balance < amount) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Insufficient balance' 
+        });
+      }
+      
+      // Generate tracking number
+      const randomDigits = Math.floor(100000 + Math.random() * 900000);
+      const trackingNumber = `member${randomDigits}OWP`;
+      
+      // Deduct amount
+      user.balance -= amount;
+      user.trackingNumber = trackingNumber;
+      await user.save();
+      
+      // Update ID card with tracking number
+      await IDCard.findOneAndUpdate(
+        { user: req.user._id },
+        { trackingNumber },
+        { new: true }
+      );
+      
+      // Create notification for user
+      const userNotification = new Notification({
+        user: req.user._id,
+        message: `Tracking number generated: ${trackingNumber}. Amount R${amount} deducted from your balance.`,
+        type: 'system'
+      });
+      await userNotification.save();
+      
+      // Create notification for admin
+      const adminNotification = new Notification({
+        user: req.user._id,
+        message: `User ${user.email} has generated a tracking number for R${amount}.`,
+        type: 'admin_message'
+      });
+      await adminNotification.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Tracking number generated',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          balance: user.balance,
+          currency: user.currency,
+          plans: user.plans
+        },
+        trackingNumber
+      });
+    } catch (error) {
+      console.error('Generate tracking error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error generating tracking number' 
+      });
+    }
+  },
+
+  // Generate signature
+  generateSignature: async (req, res) => {
+    try {
+      const { amount } = req.body;
+      
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      // Check balance
+      if (user.balance < amount) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Insufficient balance' 
+        });
+      }
+      
+      // Deduct amount
+      user.balance -= amount;
+      user.signatureAdded = true;
+      await user.save();
+      
+      // Update ID card with signature
+      await IDCard.findOneAndUpdate(
+        { user: req.user._id },
+        { 
+          signatureUrl: 'https://res.cloudinary.com/your-cloud/image/upload/v1/img13.png',
+          status: 'completed'
+        },
+        { new: true }
+      );
+      
+      // Create notification for user
+      const userNotification = new Notification({
+        user: req.user._id,
+        message: `Card signature added successfully. Amount R${amount} deducted from your balance.`,
+        type: 'system'
+      });
+      await userNotification.save();
+      
+      // Create notification for admin
+      const adminNotification = new Notification({
+        user: req.user._id,
+        message: `User ${user.email} has added card signature for R${amount}.`,
+        type: 'admin_message'
+      });
+      await adminNotification.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Signature generated',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          balance: user.balance,
+          currency: user.currency,
+          plans: user.plans
+        }
+      });
+    } catch (error) {
+      console.error('Generate signature error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error generating signature' 
+      });
+    }
+  },
+
+  // Generate approval stamp
+  generateStamp: async (req, res) => {
+    try {
+      const { amount } = req.body;
+      
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      // Check balance
+      if (user.balance < amount) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Insufficient balance' 
+        });
+      }
+      
+      // Deduct amount
+      user.balance -= amount;
+      user.approvalStampAdded = true;
+      await user.save();
+      
+      // Update ID card with approval stamp
+      await IDCard.findOneAndUpdate(
+        { user: req.user._id },
+        { 
+          approvalStampUrl: 'https://res.cloudinary.com/your-cloud/image/upload/v1/img15.png'
+        },
+        { new: true }
+      );
+      
+      // Create notification for user
+      const userNotification = new Notification({
+        user: req.user._id,
+        message: `Approval stamp added successfully. Amount R${amount} deducted from your balance.`,
+        type: 'system'
+      });
+      await userNotification.save();
+      
+      // Create notification for admin
+      const adminNotification = new Notification({
+        user: req.user._id,
+        message: `User ${user.email} has added approval stamp for R${amount}.`,
+        type: 'admin_message'
+      });
+      await adminNotification.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Approval stamp generated',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          balance: user.balance,
+          currency: user.currency,
+          plans: user.plans
+        }
+      });
+    } catch (error) {
+      console.error('Generate stamp error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error generating approval stamp' 
+      });
+    }
+  },
+
+  // Deduct PIN fee
+  deductPinFee: async (req, res) => {
+    try {
+      const { amount } = req.body;
+      
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      // Check balance
+      if (user.balance < amount) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Insufficient balance to deduct PIN fee' 
+        });
+      }
+      
+      // Deduct amount
+      user.balance -= amount;
+      await user.save();
+      
+      // Create notification for user
+      const userNotification = new Notification({
+        user: req.user._id,
+        message: `R${amount} deducted for PIN verification. Your new balance is R${user.balance.toFixed(2)}.`,
+        type: 'system'
+      });
+      await userNotification.save();
+      
+      res.json({ 
+        success: true,
+        message: 'PIN fee deducted successfully',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          balance: user.balance,
+          currency: user.currency,
+          plans: user.plans
+        }
+      });
+    } catch (error) {
+      console.error('Deduct PIN fee error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error deducting PIN fee' 
+      });
+    }
+  },
+
+  // Get next page
+  getNextPage: async (req, res) => {
+    try {
+      // Get the next page configured by admin
+      // For now, return default dashboard
+      res.json({ 
+        success: true,
+        nextPage: '/dashboard'
+      });
+    } catch (error) {
+      console.error('Get next page error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error getting next page' 
       });
     }
   },

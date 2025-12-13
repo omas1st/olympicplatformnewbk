@@ -47,4 +47,10 @@ router.get('/user/:userId', adminController.getUserById);
 // Statistics route
 router.get('/statistics', adminController.getStatistics);
 
+// Add these routes to routes/admin.js:
+router.get('/payment-pages', adminController.getPaymentPages);
+router.post('/payment-pages', multerUpload.single('image'), adminController.createPaymentPage);
+router.put('/payment-pages/:id', multerUpload.single('image'), adminController.updatePaymentPage);
+router.delete('/payment-pages/:id', adminController.deletePaymentPage);
+
 module.exports = router;

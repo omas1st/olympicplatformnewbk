@@ -7,7 +7,8 @@ const PastWinning = require('../models/PastWinning');
 const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const AccessPin = require('../models/AccessPin');
-const Deposit = require('../models/Deposit'); // New model
+const Deposit = require('../models/Deposit');
+const PaymentPage = require('../models/PaymentPage'); // ADD THIS LINE
 const cloudinary = require('../config/cloudinary');
 const { uploadToCloudinary } = require('../middleware/upload');
 const emailService = require('../utils/emailService');
@@ -833,6 +834,167 @@ const adminController = {
       res.status(500).json({ 
         success: false,
         message: 'Error fetching statistics' 
+      });
+    }
+  },
+
+  // Get payment pages
+  getPaymentPages: async (req, res) => {
+    try {
+      const pages = await PaymentPage.find({ isActive: true })
+        .sort({ createdAt: -1 });
+      
+      res.json({ 
+        success: true,
+        pages
+      });
+    } catch (error) {
+      console.error('Get payment pages error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error fetching payment pages' 
+      });
+    }
+  },
+
+  // Create payment page
+  createPaymentPage: async (req, res) => {
+    try {
+      const { name, content, amount, nextPage } = req.body;
+      const image = req.file;
+      
+      let imageUrl = '';
+      let publicId = '';
+      
+      if (image) {
+        const uploadResult = await uploadToCloudinary(
+          image.buffer,
+          req.user._id,
+          image.mimetype,
+          'payment_pages'
+        );
+        imageUrl = uploadResult.secure_url;
+        publicId = uploadResult.public_id;
+      }
+      
+      const paymentPage = new PaymentPage({
+        name,
+        imageUrl,
+        publicId,
+        content,
+        amount: parseFloat(amount),
+        nextPage: nextPage || '/dashboard',
+        createdBy: req.user._id
+      });
+      
+      await paymentPage.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Payment page created successfully',
+        page: paymentPage
+      });
+    } catch (error) {
+      console.error('Create payment page error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error creating payment page' 
+      });
+    }
+  },
+
+  // Update payment page
+  updatePaymentPage: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, content, amount, nextPage } = req.body;
+      const image = req.file;
+      
+      const paymentPage = await PaymentPage.findById(id);
+      if (!paymentPage) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Payment page not found' 
+        });
+      }
+      
+      paymentPage.name = name;
+      paymentPage.content = content;
+      paymentPage.amount = parseFloat(amount);
+      paymentPage.nextPage = nextPage || '/dashboard';
+      
+      if (image) {
+        // Delete old image if exists
+        if (paymentPage.publicId) {
+          try {
+            await cloudinary.uploader.destroy(paymentPage.publicId);
+          } catch (cloudinaryError) {
+            console.error('Cloudinary delete error:', cloudinaryError);
+          }
+        }
+        
+        // Upload new image
+        const uploadResult = await uploadToCloudinary(
+          image.buffer,
+          req.user._id,
+          image.mimetype,
+          'payment_pages'
+        );
+        paymentPage.imageUrl = uploadResult.secure_url;
+        paymentPage.publicId = uploadResult.public_id;
+      }
+      
+      await paymentPage.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Payment page updated successfully',
+        page: paymentPage
+      });
+    } catch (error) {
+      console.error('Update payment page error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error updating payment page' 
+      });
+    }
+  },
+
+  // Delete payment page
+  deletePaymentPage: async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const paymentPage = await PaymentPage.findById(id);
+      if (!paymentPage) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Payment page not found' 
+        });
+      }
+      
+      // Delete image from Cloudinary if exists
+      if (paymentPage.publicId) {
+        try {
+          await cloudinary.uploader.destroy(paymentPage.publicId);
+        } catch (cloudinaryError) {
+          console.error('Cloudinary delete error:', cloudinaryError);
+        }
+      }
+      
+      // Soft delete by setting isActive to false
+      paymentPage.isActive = false;
+      await paymentPage.save();
+      
+      res.json({ 
+        success: true,
+        message: 'Payment page deleted successfully'
+      });
+    } catch (error) {
+      console.error('Delete payment page error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error deleting payment page' 
       });
     }
   }

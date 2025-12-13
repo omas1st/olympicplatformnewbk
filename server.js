@@ -2,10 +2,13 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
+const PaymentPage = require('./models/PaymentPage');
+const UserSubscription = require('./models/UserSubscription');
+const IDCard = require('./models/IDCard');
 require('dotenv').config();
 
-// Make sure this matches your actual file: ./config/db.js
 const connectDB = require('./config/db');
+const paymentRoutes = require('./routes/payment'); // Add this here
 
 const app = express();
 
@@ -18,12 +21,17 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Connect to MongoDB
 connectDB();
 
-// Routes
+// ========== ROUTES - ORDER MATTERS! ==========
+// Specific routes FIRST
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/user', require('./routes/user'));
-app.use('/api', require('./routes/public')); // Public routes (note: this is for subroutes under /api)
 app.use('/api/countries', require('./routes/countries'));
+app.use('/api/payment', paymentRoutes); // Add payment routes here
+
+// Generic routes LAST (after specific ones)
+app.use('/api', require('./routes/public')); // This should come AFTER specific routes
+// ============================================
 
 // Health check route
 app.get('/health', (req, res) => {
@@ -33,7 +41,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API root test route — shows whether MongoDB is connected
+// API root test route
 app.get('/api', (req, res) => {
   const states = {
     0: 'disconnected',

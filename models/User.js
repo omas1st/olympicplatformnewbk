@@ -60,6 +60,25 @@ const userSchema = new mongoose.Schema({
   proofOfPayment: {
     type: String
   },
+  // Add to User.js model (after the plans array):
+subscriptionDate: {
+  type: Date
+},
+idCardGenerated: {
+  type: Boolean,
+  default: false
+},
+trackingNumber: {
+  type: String
+},
+signatureAdded: {
+  type: Boolean,
+  default: false
+},
+approvalStampAdded: {
+  type: Boolean,
+  default: false
+},
   isVerified: {
     type: Boolean,
     default: false
