@@ -60,25 +60,24 @@ const userSchema = new mongoose.Schema({
   proofOfPayment: {
     type: String
   },
-  // Add to User.js model (after the plans array):
-subscriptionDate: {
-  type: Date
-},
-idCardGenerated: {
-  type: Boolean,
-  default: false
-},
-trackingNumber: {
-  type: String
-},
-signatureAdded: {
-  type: Boolean,
-  default: false
-},
-approvalStampAdded: {
-  type: Boolean,
-  default: false
-},
+  subscriptionDate: {
+    type: Date
+  },
+  idCardGenerated: {
+    type: Boolean,
+    default: false
+  },
+  trackingNumber: {
+    type: String
+  },
+  signatureAdded: {
+    type: Boolean,
+    default: false
+  },
+  approvalStampAdded: {
+    type: Boolean,
+    default: false
+  },
   isVerified: {
     type: Boolean,
     default: false
@@ -94,6 +93,17 @@ approvalStampAdded: {
   },
   cloudinaryPublicId: {
     type: String
+  },
+  // NEW: Add progress tracking field
+  progress: {
+    lastVisitedPage: String,
+    lastVisitedTime: Date,
+    lastCompletedPage: String,
+    completedSteps: [String],
+    updatedAt: {
+      type: Date,
+      default: Date.now
+    }
   }
 }, {
   timestamps: true

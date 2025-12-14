@@ -12,6 +12,11 @@ router.get('/dashboard', userController.getDashboard);
 router.get('/profile', userController.getProfile);
 router.put('/profile', userController.updateProfile);
 
+// NEW: Progress tracking routes
+router.post('/update-progress', userController.updateProgress);
+router.get('/progress', userController.getProgress);
+router.delete('/reset-progress', userController.resetProgress);
+
 // Notification routes
 router.get('/notifications/:userId', userController.getNotifications);
 

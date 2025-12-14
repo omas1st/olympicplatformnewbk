@@ -1086,6 +1086,99 @@ const userController = {
     }
   },
 
+  // In userController.js - Add these methods
+
+// Update user progress
+updateProgress: async (req, res) => {
+  try {
+    const { pageName, stepCompleted } = req.body;
+    
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
+    }
+    
+    // Initialize progress if not exists
+    user.progress = user.progress || {};
+    
+    // Update last visited page
+    user.progress.lastVisitedPage = pageName;
+    user.progress.lastVisitedTime = new Date();
+    user.progress.updatedAt = new Date();
+    
+    // Update last completed page if step is completed
+    if (stepCompleted) {
+      user.progress.lastCompletedPage = pageName;
+      user.progress.completedSteps = user.progress.completedSteps || [];
+      if (!user.progress.completedSteps.includes(pageName)) {
+        user.progress.completedSteps.push(pageName);
+      }
+    }
+    
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'Progress updated successfully',
+      progress: user.progress
+    });
+  } catch (error) {
+    console.error('Update progress error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error updating progress' 
+    });
+  }
+},
+
+// Get user progress
+getProgress: async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('progress');
+    
+    res.json({
+      success: true,
+      progress: user.progress || {}
+    });
+  } catch (error) {
+    console.error('Get progress error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error getting progress' 
+    });
+  }
+},
+
+// Reset user progress
+resetProgress: async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
+    }
+    
+    user.progress = {};
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'Progress reset successfully'
+    });
+  } catch (error) {
+    console.error('Reset progress error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error resetting progress' 
+    });
+  }
+},
+
   // Check if user is verified
   checkVerification: async (req, res) => {
     try {
