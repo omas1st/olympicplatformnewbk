@@ -94,12 +94,16 @@ const userSchema = new mongoose.Schema({
   cloudinaryPublicId: {
     type: String
   },
-  // NEW: Add progress tracking field
+  // NEW: Updated progress tracking fields
   progress: {
     lastVisitedPage: String,
     lastVisitedTime: Date,
     lastCompletedPage: String,
     completedSteps: [String],
+    highestPageVisited: {
+      type: String,
+      default: 'unlock-access'
+    },
     updatedAt: {
       type: Date,
       default: Date.now

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { auth } = require('../middleware/auth'); // FIXED: Destructure auth from the object
+const { auth } = require('../middleware/auth');
 const { multerUpload } = require('../middleware/upload');
 const userController = require('../controllers/userController');
 
@@ -15,6 +15,7 @@ router.put('/profile', userController.updateProfile);
 // NEW: Progress tracking routes
 router.post('/update-progress', userController.updateProgress);
 router.get('/progress', userController.getProgress);
+router.get('/current-page', userController.getCurrentPage);
 router.delete('/reset-progress', userController.resetProgress);
 
 // Notification routes
@@ -29,7 +30,7 @@ router.post('/verify-user', userController.verifyUser);
 // Message routes
 router.post('/send-message', userController.sendMessage);
 
-// Deposit routes - ADD THESE
+// Deposit routes
 router.post('/submit-deposit', userController.submitDeposit);
 router.post('/upload-deposit-proof', multerUpload.single('proof'), userController.uploadDepositProof);
 

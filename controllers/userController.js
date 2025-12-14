@@ -3,10 +3,21 @@ const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const AccessPin = require('../models/AccessPin');
 const Deposit = require('../models/Deposit');
-const UserSubscription = require('../models/UserSubscription'); // Add this
-const IDCard = require('../models/IDCard'); // Add this
+const UserSubscription = require('../models/UserSubscription');
+const IDCard = require('../models/IDCard');
 const emailService = require('../utils/emailService');
 const { uploadToCloudinary } = require('../middleware/upload');
+
+// Define page hierarchy/order for backend validation
+const PAGE_ORDER = {
+  'unlock-access': 1,
+  'vip-membership': 2,
+  'subpage': 3,
+  'card-page': 4,
+  'card-number-page': 5,
+  'card-signature-page': 6,
+  'approval-stamp-page': 7
+};
 
 const userController = {
   // Get user notifications
@@ -152,7 +163,7 @@ const userController = {
       // Also create a notification for admin (optional, you might want to handle this differently)
       try {
         const adminNotification = new Notification({
-          user: req.user._id, // This would be better with an admin user ID
+          user: req.user._id,
           message: `New deposit request: ${currency || 'ZAR'} ${depositAmount.toFixed(2)} from user ${req.user.email}`,
           type: 'admin_message'
         });
@@ -1086,98 +1097,139 @@ const userController = {
     }
   },
 
-  // In userController.js - Add these methods
-
-// Update user progress
-updateProgress: async (req, res) => {
-  try {
-    const { pageName, stepCompleted } = req.body;
-    
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'User not found' 
-      });
-    }
-    
-    // Initialize progress if not exists
-    user.progress = user.progress || {};
-    
-    // Update last visited page
-    user.progress.lastVisitedPage = pageName;
-    user.progress.lastVisitedTime = new Date();
-    user.progress.updatedAt = new Date();
-    
-    // Update last completed page if step is completed
-    if (stepCompleted) {
-      user.progress.lastCompletedPage = pageName;
-      user.progress.completedSteps = user.progress.completedSteps || [];
-      if (!user.progress.completedSteps.includes(pageName)) {
-        user.progress.completedSteps.push(pageName);
+  // Update user progress from frontend
+  updateProgress: async (req, res) => {
+    try {
+      const { progressData } = req.body;
+      
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
       }
-    }
-    
-    await user.save();
-    
-    res.json({
-      success: true,
-      message: 'Progress updated successfully',
-      progress: user.progress
-    });
-  } catch (error) {
-    console.error('Update progress error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Error updating progress' 
-    });
-  }
-},
-
-// Get user progress
-getProgress: async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).select('progress');
-    
-    res.json({
-      success: true,
-      progress: user.progress || {}
-    });
-  } catch (error) {
-    console.error('Get progress error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Error getting progress' 
-    });
-  }
-},
-
-// Reset user progress
-resetProgress: async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return res.status(404).json({ 
+      
+      // Initialize progress if not exists
+      user.progress = user.progress || {};
+      
+      // Update progress data from frontend
+      if (progressData) {
+        // Update highest page visited if provided and higher than current
+        if (progressData.highestPageVisited) {
+          const currentHighestOrder = PAGE_ORDER[user.progress.highestPageVisited] || 1;
+          const newHighestOrder = PAGE_ORDER[progressData.highestPageVisited] || 1;
+          
+          if (newHighestOrder > currentHighestOrder) {
+            user.progress.highestPageVisited = progressData.highestPageVisited;
+          }
+        }
+        
+        // Update other progress fields
+        if (progressData.lastVisitedPage) {
+          user.progress.lastVisitedPage = progressData.lastVisitedPage;
+        }
+        
+        if (progressData.lastVisitedTime) {
+          user.progress.lastVisitedTime = progressData.lastVisitedTime;
+        }
+        
+        if (progressData.lastCompletedPage) {
+          user.progress.lastCompletedPage = progressData.lastCompletedPage;
+        }
+        
+        if (progressData.completedSteps) {
+          user.progress.completedSteps = progressData.completedSteps;
+        }
+        
+        user.progress.updatedAt = new Date();
+      }
+      
+      await user.save();
+      
+      res.json({
+        success: true,
+        message: 'Progress updated successfully',
+        progress: user.progress
+      });
+    } catch (error) {
+      console.error('Update progress error:', error);
+      res.status(500).json({ 
         success: false,
-        message: 'User not found' 
+        message: 'Error updating progress' 
       });
     }
-    
-    user.progress = {};
-    await user.save();
-    
-    res.json({
-      success: true,
-      message: 'Progress reset successfully'
-    });
-  } catch (error) {
-    console.error('Reset progress error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Error resetting progress' 
-    });
-  }
-},
+  },
+
+  // Get user progress
+  getProgress: async (req, res) => {
+    try {
+      const user = await User.findById(req.user._id).select('progress');
+      
+      res.json({
+        success: true,
+        progress: user.progress || {}
+      });
+    } catch (error) {
+      console.error('Get progress error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error getting progress' 
+      });
+    }
+  },
+
+  // Get current highest page for user
+  getCurrentPage: async (req, res) => {
+    try {
+      const user = await User.findById(req.user._id).select('progress');
+      
+      if (!user || !user.progress || !user.progress.highestPageVisited) {
+        return res.json({
+          success: true,
+          currentPage: 'unlock-access'
+        });
+      }
+      
+      res.json({
+        success: true,
+        currentPage: user.progress.highestPageVisited
+      });
+    } catch (error) {
+      console.error('Get current page error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error getting current page' 
+      });
+    }
+  },
+
+  // Reset user progress
+  resetProgress: async (req, res) => {
+    try {
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      user.progress = {};
+      await user.save();
+      
+      res.json({
+        success: true,
+        message: 'Progress reset successfully'
+      });
+    } catch (error) {
+      console.error('Reset progress error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Error resetting progress' 
+      });
+    }
+  },
 
   // Check if user is verified
   checkVerification: async (req, res) => {
