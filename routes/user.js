@@ -18,6 +18,9 @@ router.get('/progress', userController.getProgress);
 router.get('/current-page', userController.getCurrentPage);
 router.delete('/reset-progress', userController.resetProgress);
 
+// Add this line after your existing routes in routes/user.js
+router.get('/test-progress', userController.testProgress);
+
 // Notification routes
 router.get('/notifications/:userId', userController.getNotifications);
 

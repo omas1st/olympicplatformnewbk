@@ -52,7 +52,7 @@ const userSchema = new mongoose.Schema({
   },
   currency: {
     type: String,
-    default: 'ZAR' // Changed from USD to ZAR
+    default: 'ZAR'
   },
   plans: [{
     type: String
@@ -94,7 +94,7 @@ const userSchema = new mongoose.Schema({
   cloudinaryPublicId: {
     type: String
   },
-  // NEW: Updated progress tracking fields
+  // Enhanced progress tracking fields
   progress: {
     lastVisitedPage: String,
     lastVisitedTime: Date,
@@ -104,6 +104,11 @@ const userSchema = new mongoose.Schema({
       type: String,
       default: 'unlock-access'
     },
+    allStagesCompleted: {
+      type: Boolean,
+      default: false
+    },
+    completedAt: Date,
     updatedAt: {
       type: Date,
       default: Date.now

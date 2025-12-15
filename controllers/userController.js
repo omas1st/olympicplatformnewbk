@@ -109,7 +109,7 @@ const userController = {
     }
   },
 
-  // Submit deposit request - FIXED VERSION
+  // Submit deposit request
   submitDeposit: async (req, res) => {
     try {
       console.log('Submit deposit request received:', req.body);
@@ -160,7 +160,7 @@ const userController = {
       });
       await userNotification.save();
 
-      // Also create a notification for admin (optional, you might want to handle this differently)
+      // Also create a notification for admin
       try {
         const adminNotification = new Notification({
           user: req.user._id,
@@ -170,7 +170,6 @@ const userController = {
         await adminNotification.save();
       } catch (adminNotifyError) {
         console.error('Failed to create admin notification:', adminNotifyError);
-        // Don't fail the whole request if admin notification fails
       }
 
       // Send email notification if email service is configured
@@ -186,7 +185,6 @@ const userController = {
         }
       } catch (emailError) {
         console.error('Failed to send email:', emailError);
-        // Don't fail the whole request if email fails
       }
 
       res.json({ 
@@ -1097,10 +1095,13 @@ const userController = {
     }
   },
 
-  // Update user progress from frontend
+  // Update user progress from frontend - FIXED VERSION
   updateProgress: async (req, res) => {
     try {
       const { progressData } = req.body;
+      
+      console.log('Updating progress for user:', req.user._id);
+      console.log('Progress data received:', progressData);
       
       const user = await User.findById(req.user._id);
       if (!user) {
@@ -1111,41 +1112,85 @@ const userController = {
       }
       
       // Initialize progress if not exists
-      user.progress = user.progress || {};
+      if (!user.progress) {
+        user.progress = {};
+      }
+      
+      // Define page hierarchy/order for validation
+      const PAGE_ORDER = {
+        'unlock-access': 1,
+        'vip-membership': 2,
+        'subpage': 3,
+        'card-page': 4,
+        'card-number-page': 5,
+        'card-signature-page': 6,
+        'approval-stamp-page': 7
+      };
       
       // Update progress data from frontend
       if (progressData) {
-        // Update highest page visited if provided and higher than current
-        if (progressData.highestPageVisited) {
-          const currentHighestOrder = PAGE_ORDER[user.progress.highestPageVisited] || 1;
-          const newHighestOrder = PAGE_ORDER[progressData.highestPageVisited] || 1;
-          
-          if (newHighestOrder > currentHighestOrder) {
-            user.progress.highestPageVisited = progressData.highestPageVisited;
-          }
-        }
+        console.log('Updating progress with data:', progressData);
         
-        // Update other progress fields
+        // Update last visited page
         if (progressData.lastVisitedPage) {
           user.progress.lastVisitedPage = progressData.lastVisitedPage;
         }
         
+        // Update last visited time
         if (progressData.lastVisitedTime) {
           user.progress.lastVisitedTime = progressData.lastVisitedTime;
         }
         
+        // Update last completed page
         if (progressData.lastCompletedPage) {
           user.progress.lastCompletedPage = progressData.lastCompletedPage;
         }
         
+        // Update completed steps
         if (progressData.completedSteps) {
-          user.progress.completedSteps = progressData.completedSteps;
+          // Merge completed steps without duplicates
+          const existingSteps = user.progress.completedSteps || [];
+          const newSteps = progressData.completedSteps || [];
+          const mergedSteps = [...new Set([...existingSteps, ...newSteps])];
+          user.progress.completedSteps = mergedSteps;
         }
         
+        // Update highest page visited
+        if (progressData.highestPageVisited) {
+          const currentHighestOrder = PAGE_ORDER[user.progress.highestPageVisited] || 1;
+          const newHighestOrder = PAGE_ORDER[progressData.highestPageVisited] || 1;
+          
+          // Only update if new page is higher
+          if (newHighestOrder > currentHighestOrder) {
+            user.progress.highestPageVisited = progressData.highestPageVisited;
+            console.log('Updated highest page to:', progressData.highestPageVisited);
+          } else {
+            console.log('Not updating highest page - new page not higher');
+          }
+        }
+        
+        // Update allStagesCompleted if provided
+        if (progressData.allStagesCompleted !== undefined) {
+          user.progress.allStagesCompleted = progressData.allStagesCompleted;
+        }
+        
+        // Update completedAt if provided
+        if (progressData.completedAt) {
+          user.progress.completedAt = progressData.completedAt;
+        }
+        
+        // Set updated timestamp
         user.progress.updatedAt = new Date();
+        
+        // Ensure we have a default highest page
+        if (!user.progress.highestPageVisited) {
+          user.progress.highestPageVisited = 'unlock-access';
+        }
       }
       
       await user.save();
+      
+      console.log('Progress saved successfully:', user.progress);
       
       res.json({
         success: true,
@@ -1156,7 +1201,8 @@ const userController = {
       console.error('Update progress error:', error);
       res.status(500).json({ 
         success: false,
-        message: 'Error updating progress' 
+        message: 'Error updating progress',
+        error: error.message 
       });
     }
   },
@@ -1165,6 +1211,13 @@ const userController = {
   getProgress: async (req, res) => {
     try {
       const user = await User.findById(req.user._id).select('progress');
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
       
       res.json({
         success: true,
@@ -1184,7 +1237,14 @@ const userController = {
     try {
       const user = await User.findById(req.user._id).select('progress');
       
-      if (!user || !user.progress || !user.progress.highestPageVisited) {
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      
+      if (!user.progress || !user.progress.highestPageVisited) {
         return res.json({
           success: true,
           currentPage: 'unlock-access'
@@ -1215,7 +1275,10 @@ const userController = {
         });
       }
       
-      user.progress = {};
+      user.progress = {
+        highestPageVisited: 'unlock-access',
+        updatedAt: new Date()
+      };
       await user.save();
       
       res.json({
@@ -1234,12 +1297,13 @@ const userController = {
   // Check if user is verified
   checkVerification: async (req, res) => {
     try {
-      const user = await User.findById(req.user._id).select('isVerified verifiedAt plans personalPin');
+      const user = await User.findById(req.user._id).select('isVerified verifiedAt plans personalPin progress');
       res.json({
         isVerified: user.isVerified || false,
         verifiedAt: user.verifiedAt,
         plans: user.plans || [],
-        hasPersonalPin: !!user.personalPin
+        hasPersonalPin: !!user.personalPin,
+        progress: user.progress || {}
       });
     } catch (error) {
       console.error('Check verification error:', error);
@@ -1283,6 +1347,38 @@ const userController = {
     } catch (error) {
       console.error('Update profile error:', error);
       res.status(500).json({ message: 'Error updating profile' });
+    }
+  },
+
+  // Test progress endpoint for debugging
+  testProgress: async (req, res) => {
+    try {
+      const user = await User.findById(req.user._id).select('progress');
+      
+      // Create test progress if none exists
+      if (!user.progress || !user.progress.highestPageVisited) {
+        user.progress = {
+          highestPageVisited: 'vip-membership',
+          lastVisitedPage: 'vip-membership',
+          lastVisitedTime: new Date(),
+          updatedAt: new Date()
+        };
+        await user.save();
+      }
+      
+      res.json({
+        success: true,
+        message: 'Progress test endpoint',
+        progress: user.progress,
+        userId: req.user._id
+      });
+    } catch (error) {
+      console.error('Test progress error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Test failed',
+        error: error.message
+      });
     }
   }
 };
