@@ -345,6 +345,106 @@ const emailService = {
     return await emailService.sendAdminNotification(subject, htmlContent);
   },
 
+  // Send notification for deposit request - ADDED THIS FUNCTION
+  sendDepositRequestNotification: async (userData, amount, currency, paymentMethod) => {
+    const subject = `💰 Deposit Request Submitted: ${userData.name} - ${currency} ${amount}`;
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #3498db; color: white; padding: 15px; border-radius: 5px 5px 0 0; }
+          .content { background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }
+          .user-info { margin-bottom: 15px; }
+          .label { font-weight: bold; color: #333; }
+          .value { color: #666; }
+          .footer { margin-top: 20px; font-size: 12px; color: #999; text-align: center; }
+          .info { background: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; border-radius: 4px; margin: 15px 0; color: #0c5460; }
+          .deposit-amount { font-size: 1.5em; color: #27ae60; font-weight: bold; text-align: center; margin: 15px 0; }
+          .method-badge { background: #6c5ce7; color: white; padding: 5px 15px; border-radius: 20px; display: inline-block; font-size: 0.9em; margin: 5px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2 style="margin: 0;">💰 Olympic Lottery Platform - Deposit Request</h2>
+        </div>
+        <div class="content">
+          <h3 style="color: #2c3e50;">New Deposit Request Submitted</h3>
+          <div class="info">
+            <strong>ℹ️ Information:</strong> User has submitted a deposit request. Awaiting proof of payment.
+          </div>
+          
+          <div class="deposit-amount">
+            ${currency} ${parseFloat(amount).toFixed(2)}
+          </div>
+          
+          <div style="text-align: center; margin: 20px 0;">
+            <div class="method-badge">
+              ${paymentMethod === 'bank_transfer' ? '🏦 Bank Transfer' : '🪙 Cryptocurrency'}
+            </div>
+          </div>
+          
+          <div class="user-info">
+            <span class="label">👤 Name:</span> <span class="value">${userData.name}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📧 Email:</span> <span class="value">${userData.email}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📱 WhatsApp:</span> <span class="value">${userData.whatsapp}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">🌍 Country:</span> <span class="value">${userData.country}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📋 Current Plan:</span> <span class="value">${userData.plans && userData.plans.length > 0 ? userData.plans[0] : 'No plan yet'}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">💰 Current Balance:</span> <span class="value">${userData.currency} ${userData.balance || 0}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">💳 Payment Method:</span> <span class="value">${paymentMethod === 'bank_transfer' ? 'Bank Transfer' : 'Cryptocurrency'}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">🕒 Request Time:</span> <span class="value">${new Date().toLocaleString('en-US', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}</span>
+          </div>
+          
+          <div style="background: #e8f4fd; padding: 15px; border-radius: 4px; margin-top: 20px;">
+            <p><strong>📋 Next Steps:</strong></p>
+            <ol style="margin: 10px 0; padding-left: 20px;">
+              <li>Wait for the user to upload proof of payment</li>
+              <li>Once proof is uploaded, you will receive another notification</li>
+              <li>Login to Admin Panel to verify and approve the deposit</li>
+              <li>User's balance will be updated after approval</li>
+            </ol>
+          </div>
+          
+          <div style="margin-top: 20px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+            <p style="margin: 0; font-size: 0.9em; color: #666;">
+              <strong>💡 Note:</strong> The user has been instructed to upload proof of payment. You will receive another email when they do.
+            </p>
+          </div>
+        </div>
+        <div class="footer">
+          <p>This is an automated notification from Olympic Lottery Platform.</p>
+          <p>User ID: ${userData._id || 'N/A'} | Timestamp: ${new Date().toISOString()}</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return await emailService.sendAdminNotification(subject, htmlContent);
+  },
+
   // Send notification for deposit proof
   sendDepositProofNotification: async (userData, amount, currency, proofUrl) => {
     const subject = `💰 Deposit Proof Uploaded: ${userData.name} - ${currency} ${amount}`;
@@ -401,7 +501,7 @@ const emailService = {
           </div>
           
           <div class="deposit-amount">
-            ${currency} ${amount.toFixed(2)}
+            ${currency} ${parseFloat(amount).toFixed(2)}
           </div>
           
           <div class="user-info">
@@ -606,69 +706,129 @@ const emailService = {
   },
 
   // Send subscription notification
-sendSubscriptionNotification: async (userData, plan, amount) => {
-  const subject = `📋 New Subscription: ${userData.name} - ${plan}`;
-  
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        /* Add your email styles here */
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h2>📋 Olympic Lottery Platform - New Subscription</h2>
-      </div>
-      <div class="content">
-        <h3>Subscription Details</h3>
-        <div class="user-info">
-          <p><strong>User:</strong> ${userData.name}</p>
-          <p><strong>Email:</strong> ${userData.email}</p>
-          <p><strong>Plan:</strong> ${plan}</p>
-          <p><strong>Amount:</strong> R ${amount}</p>
-          <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+  sendSubscriptionNotification: async (userData, plan, amount) => {
+    const subject = `📋 New Subscription: ${userData.name} - ${plan}`;
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #2ecc71; color: white; padding: 15px; border-radius: 5px 5px 0 0; }
+          .content { background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }
+          .user-info { margin-bottom: 15px; }
+          .label { font-weight: bold; color: #333; }
+          .value { color: #666; }
+          .footer { margin-top: 20px; font-size: 12px; color: #999; text-align: center; }
+          .success { background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 4px; margin: 15px 0; color: #155724; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2 style="margin: 0;">📋 Olympic Lottery Platform - New Subscription</h2>
         </div>
-      </div>
-    </body>
-    </html>
-  `;
-  
-  return await emailService.sendAdminNotification(subject, htmlContent);
-},
+        <div class="content">
+          <h3 style="color: #2c3e50;">Subscription Details</h3>
+          <div class="success">
+            <strong>✅ Subscription Successful:</strong> User has subscribed to a new plan.
+          </div>
+          <div class="user-info">
+            <span class="label">👤 Name:</span> <span class="value">${userData.name}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📧 Email:</span> <span class="value">${userData.email}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📱 WhatsApp:</span> <span class="value">${userData.whatsapp}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">🌍 Country:</span> <span class="value">${userData.country}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📋 Plan:</span> <span class="value">${plan}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">💰 Amount:</span> <span class="value">R ${amount}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">🕒 Date:</span> <span class="value">${new Date().toLocaleString()}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">💳 New Balance:</span> <span class="value">${userData.currency} ${(userData.balance - amount).toFixed(2)}</span>
+          </div>
+        </div>
+        <div class="footer">
+          <p>This is an automated notification from Olympic Lottery Platform.</p>
+          <p>User ID: ${userData._id || 'N/A'}</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    return await emailService.sendAdminNotification(subject, htmlContent);
+  },
 
-// Send ID card generation notification
-sendIdCardNotification: async (userData, amount) => {
-  const subject = `🪪 ID Card Generated: ${userData.name}`;
-  
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        /* Add your email styles here */
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h2>🪪 Olympic Lottery Platform - ID Card Generated</h2>
-      </div>
-      <div class="content">
-        <h3>ID Card Generation Details</h3>
-        <div class="user-info">
-          <p><strong>User:</strong> ${userData.name}</p>
-          <p><strong>Email:</strong> ${userData.email}</p>
-          <p><strong>Amount:</strong> R ${amount}</p>
-          <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+  // Send ID card generation notification
+  sendIdCardNotification: async (userData, amount) => {
+    const subject = `🪪 ID Card Generated: ${userData.name}`;
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #9b59b6; color: white; padding: 15px; border-radius: 5px 5px 0 0; }
+          .content { background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }
+          .user-info { margin-bottom: 15px; }
+          .label { font-weight: bold; color: #333; }
+          .value { color: #666; }
+          .footer { margin-top: 20px; font-size: 12px; color: #999; text-align: center; }
+          .success { background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 4px; margin: 15px 0; color: #155724; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2 style="margin: 0;">🪪 Olympic Lottery Platform - ID Card Generated</h2>
         </div>
-      </div>
-    </body>
-    </html>
-  `;
-  
-  return await emailService.sendAdminNotification(subject, htmlContent);
-},
+        <div class="content">
+          <h3 style="color: #2c3e50;">ID Card Generation Details</h3>
+          <div class="success">
+            <strong>✅ ID Card Generated:</strong> User has generated a new ID card.
+          </div>
+          <div class="user-info">
+            <span class="label">👤 Name:</span> <span class="value">${userData.name}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📧 Email:</span> <span class="value">${userData.email}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">📱 WhatsApp:</span> <span class="value">${userData.whatsapp}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">🌍 Country:</span> <span class="value">${userData.country}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">💰 Amount:</span> <span class="value">R ${amount}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">💳 New Balance:</span> <span class="value">${userData.currency} ${(userData.balance - amount).toFixed(2)}</span>
+          </div>
+          <div class="user-info">
+            <span class="label">🕒 Date:</span> <span class="value">${new Date().toLocaleString()}</span>
+          </div>
+        </div>
+        <div class="footer">
+          <p>This is an automated notification from Olympic Lottery Platform.</p>
+          <p>User ID: ${userData._id || 'N/A'}</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    return await emailService.sendAdminNotification(subject, htmlContent);
+  },
 
   // Send PIN update notification
   sendPinUpdateNotification: async (userData, newPin) => {
