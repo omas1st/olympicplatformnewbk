@@ -1,3 +1,4 @@
+// models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -113,6 +114,13 @@ const userSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     }
+  },
+  // Password reset fields
+  resetCode: {
+    type: String
+  },
+  resetCodeExpires: {
+    type: Date
   }
 }, {
   timestamps: true
@@ -146,6 +154,8 @@ userSchema.methods.toJSON = function() {
   delete user.password;
   delete user.personalPin;
   delete user.cloudinaryPublicId;
+  delete user.resetCode;
+  delete user.resetCodeExpires;
   return user;
 };
 
