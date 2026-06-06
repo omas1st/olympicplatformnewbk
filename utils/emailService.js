@@ -13,6 +13,31 @@ const createTransporter = () => {
   });
 };
 
+// Generic email sender (used for user-facing emails like password reset)
+const sendEmail = async (to, subject, html) => {
+  if (!to || !process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    console.log('Email configuration not set. Skipping email to:', to);
+    return { success: false, message: 'Email configuration not set' };
+  }
+
+  try {
+    const transporter = createTransporter();
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to,
+      subject,
+      html
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent to', to, ':', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending email to', to, ':', error);
+    return { success: false, error: error.message };
+  }
+};
+
 const emailService = {
   // Send notification to admin
   sendAdminNotification: async (subject, htmlContent) => {
@@ -904,6 +929,44 @@ const emailService = {
     `;
 
     return await emailService.sendAdminNotification(subject, htmlContent);
+  },
+
+  // ========== NEW: Password Reset Code Email ==========
+  sendPasswordResetCode: async (userEmail, code) => {
+    const subject = 'Password Reset Code';
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #3498db; color: white; padding: 15px; border-radius: 5px 5px 0 0; text-align: center; }
+            .content { background: #f9f9f9; padding: 25px; border: 1px solid #ddd; }
+            .code { font-size: 2em; letter-spacing: 5px; text-align: center; margin: 20px 0; color: #2c3e50; font-weight: bold; }
+            .footer { margin-top: 20px; font-size: 12px; color: #999; text-align: center; }
+            .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 4px; margin: 15px 0; color: #856404; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h2>Olympic Lottery Platform</h2>
+          </div>
+          <div class="content">
+            <h3>Password Reset Request</h3>
+            <p>You have requested to reset your password. Use the code below:</p>
+            <div class="code">${code}</div>
+            <div class="warning">
+              This code will expire in <strong>15 minutes</strong>. If you did not request this, please ignore this email.
+            </div>
+          </div>
+          <div class="footer">
+            <p>Olympic Lottery Platform – Automated Message</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return await sendEmail(userEmail, subject, html);
   }
 };
 
