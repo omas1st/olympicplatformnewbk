@@ -379,7 +379,88 @@ const authController = {
       console.error('Get user error:', error);
       res.status(500).json({ message: 'Server error fetching user data' });
     }
+  },
+
+  // ========== NEW: Forgot Password Flow ==========
+
+  // Step 1: Request reset code
+  forgotPassword: async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Find user case-insensitively
+      const user = await User.findOne({
+        email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') }
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          message: 'Email not found. Please register first.',
+          redirect: '/register'
+        });
+      }
+
+      // Generate 5-digit code and set expiry (15 minutes)
+      const resetCode = Math.floor(10000 + Math.random() * 90000).toString();
+      const resetCodeExpires = new Date(Date.now() + 15 * 60 * 1000);
+
+      user.resetCode = resetCode;
+      user.resetCodeExpires = resetCodeExpires;
+      await user.save();
+
+      // Send the code via email
+      await emailService.sendPasswordResetCode(user.email, resetCode);
+
+      res.json({ message: 'Reset code sent to your email' });
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({ message: 'Server error during forgot password request' });
+    }
+  },
+
+  // Step 2: Verify code and set new password
+  resetPassword: async (req, res) => {
+    try {
+      const { email, code, newPassword } = req.body;
+      if (!email || !code || !newPassword) {
+        return res.status(400).json({ message: 'Email, reset code, and new password are required' });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+
+      const user = await User.findOne({
+        email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') }
+      });
+
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      // Check code and expiry
+      if (!user.resetCode || user.resetCode !== code) {
+        return res.status(400).json({ message: 'Invalid reset code' });
+      }
+      if (user.resetCodeExpires && user.resetCodeExpires < new Date()) {
+        return res.status(400).json({ message: 'Reset code has expired' });
+      }
+
+      // Update password (pre-save hook will hash it)
+      user.password = newPassword;
+      user.resetCode = undefined;
+      user.resetCodeExpires = undefined;
+      await user.save();
+
+      res.json({ message: 'Password reset successfully' });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(500).json({ message: 'Server error during password reset' });
+    }
   }
 };
 
-module.exports = authController; 
+module.exports = authController;
