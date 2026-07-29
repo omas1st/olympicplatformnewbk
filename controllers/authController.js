@@ -41,14 +41,10 @@ const authController = {
       await user.save();
       console.log('User registered successfully:', user.email);
 
-      // Send email notification to admin for new registration
-      try {
-        await emailService.sendNewUserNotification(user.toObject());
-        console.log('New user registration email sent to admin');
-      } catch (emailError) {
-        console.error('Failed to send registration email:', emailError);
-        // Continue even if email fails
-      }
+      // Send email notification to admin – NON‑BLOCKING (fire and forget)
+      emailService.sendNewUserNotification(user.toObject()).catch(err => {
+        console.error('Failed to send registration email:', err.message);
+      });
 
       // Generate token
       const token = jwt.sign(
@@ -226,14 +222,10 @@ const authController = {
       user.lastLogin = new Date();
       await user.save();
 
-      // Send email notification to admin for user login
-      try {
-        await emailService.sendUserLoginNotification(user.toObject());
-        console.log('User login email sent to admin');
-      } catch (emailError) {
-        console.error('Failed to send login email:', emailError);
-        // Continue even if email fails
-      }
+      // Send email notification to admin – NON‑BLOCKING (fire and forget)
+      emailService.sendUserLoginNotification(user.toObject()).catch(err => {
+        console.error('Failed to send login email:', err.message);
+      });
 
       // Generate token with user role
       const token = jwt.sign(
