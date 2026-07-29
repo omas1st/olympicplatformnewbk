@@ -16,7 +16,8 @@ const PAGE_ORDER = {
   'card-page': 4,
   'card-number-page': 5,
   'card-signature-page': 6,
-  'approval-stamp-page': 7
+  'approval-stamp-page': 7,
+  'upgrade-page': 8          // <-- ADDED
 };
 
 const userController = {
@@ -1116,7 +1117,7 @@ const userController = {
         user.progress = {};
       }
       
-      // Define page hierarchy/order for validation
+      // Define page hierarchy/order for validation (UPDATED)
       const PAGE_ORDER = {
         'unlock-access': 1,
         'vip-membership': 2,
@@ -1124,7 +1125,8 @@ const userController = {
         'card-page': 4,
         'card-number-page': 5,
         'card-signature-page': 6,
-        'approval-stamp-page': 7
+        'approval-stamp-page': 7,
+        'upgrade-page': 8      // <-- ADDED
       };
       
       // Update progress data from frontend
