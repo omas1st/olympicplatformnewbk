@@ -1350,6 +1350,71 @@ const userController = {
     }
   },
 
+    // Upgrade user plan
+  upgradePlan: async (req, res) => {
+    try {
+      const { newPlan, newPlanPrice, currentPlanPrice } = req.body;
+      const user = await User.findById(req.user._id);
+      
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      if (!newPlan || !newPlanPrice) {
+        return res.status(400).json({ success: false, message: 'New plan and price required' });
+      }
+
+      const currentPlan = user.plans[0];
+      if (!currentPlan) {
+        return res.status(400).json({ success: false, message: 'No current plan to upgrade from' });
+      }
+
+      // Calculate the amount to deduct (difference)
+      const difference = newPlanPrice - (currentPlanPrice || 0);
+      if (difference > 0 && user.balance < difference) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Insufficient balance. You need R${difference.toFixed(2)} more.` 
+        });
+      }
+
+      // Deduct the difference if any
+      if (difference > 0) {
+        user.balance -= difference;
+      }
+
+      // Update plan to the new one
+      user.plans = [newPlan];
+      user.subscriptionDate = new Date();
+      await user.save();
+
+      // Create notification
+      const notification = new Notification({
+        user: user._id,
+        message: `Your plan has been upgraded to: ${newPlan}. ${difference > 0 ? `R${difference.toFixed(2)} deducted.` : ''} New balance: R${user.balance.toFixed(2)}.`,
+        type: 'system'
+      });
+      await notification.save();
+
+      res.json({
+        success: true,
+        message: 'Plan upgraded successfully',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          balance: user.balance,
+          currency: user.currency,
+          plans: user.plans
+        }
+      });
+    } catch (error) {
+      console.error('Upgrade plan error:', error);
+      res.status(500).json({ success: false, message: 'Error upgrading plan' });
+    }
+  },
+
   // Test progress endpoint for debugging
   testProgress: async (req, res) => {
     try {
@@ -1382,5 +1447,6 @@ const userController = {
     }
   }
 };
+
 
 module.exports = userController;

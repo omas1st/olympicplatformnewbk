@@ -18,7 +18,6 @@ router.get('/progress', userController.getProgress);
 router.get('/current-page', userController.getCurrentPage);
 router.delete('/reset-progress', userController.resetProgress);
 
-// Add this line after your existing routes in routes/user.js
 router.get('/test-progress', userController.testProgress);
 
 // Notification routes
@@ -37,10 +36,10 @@ router.post('/send-message', userController.sendMessage);
 router.post('/submit-deposit', userController.submitDeposit);
 router.post('/upload-deposit-proof', multerUpload.single('proof'), userController.uploadDepositProof);
 
-// File upload routes (original proof upload - keep for compatibility)
+// File upload routes (original proof upload)
 router.post('/upload-proof', multerUpload.single('proof'), userController.uploadProof);
 
-// Add these routes to routes/user.js:
+// Subscription and card routes
 router.post('/vip-redirect', userController.vipRedirect);
 router.post('/subscribe-plan', userController.subscribePlan);
 router.post('/generate-id-card', multerUpload.single('image'), userController.generateIdCard);
@@ -49,5 +48,8 @@ router.post('/generate-signature', userController.generateSignature);
 router.post('/generate-stamp', userController.generateStamp);
 router.post('/deduct-pin-fee', userController.deductPinFee);
 router.get('/next-page', userController.getNextPage);
+
+// NEW: Upgrade plan route
+router.post('/upgrade-plan', userController.upgradePlan);
 
 module.exports = router;
